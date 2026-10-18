@@ -3,7 +3,10 @@
 - 文档版本：0.1
 - 日期：2026-10-19
 - 状态：Draft（待评审）
-- 关联：[README.md](README.md)、[data-formats.md](data-formats.md)、[audit-history.md](audit-history.md)、[prior-art.md](prior-art.md)、[../acceptance-criteria.md](../acceptance-criteria.md)
+- 关联：[README.md](README.md)、[data-formats.md](data-formats.md)、[audit-history.md](audit-history.md)、[prior-art.md](prior-art.md)、[adr-001-script-engine.md](adr-001-script-engine.md)、[../acceptance-criteria.md](../acceptance-criteria.md)
+
+> 执行层选型见 **[ADR-001](adr-001-script-engine.md)**：默认自研声明式 JSON（L1），按需加受限表达式（L2），
+> 图灵完备场景 opt-in 嵌入 Rhai（L3）；JSON 始终是唯一交换/录制/审计格式，副作用一律经工具白名单。
 
 ## 1. 目标与范围
 

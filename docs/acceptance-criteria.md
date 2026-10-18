@@ -379,6 +379,8 @@ Windows 首个可用版本必须同时满足：
 | AC-RPL-007 | hwnd 失效 | 关闭/重启后可经 `launch_ref` 重绑；执行中失效自动重绑并记录 `rebinds`；歧义/指纹不符默认拒绝 |
 | AC-RPL-008 | 核验分级 | `screen`（弱）与 `readback`（强）可执行并在报告中标注；`require_readback` 缺失能力时预检拒绝 |
 | AC-RPL-009 | 运行结果 | run-level `outcome` 分类正确（`VERIFIED`/`HALTED_BEFORE_EFFECT`/`RECONCILIATION_REQUIRED`/`COMPLETED_UNVERIFIED`/`REJECTED_POLICY`） |
+| AC-RPL-010 | 受限表达式（L2，可选） | `when`/`repeat` 生效；表达式无副作用（不能调用工具）；表达式越界/类型错误在预检被拒（见 [design/adr-001-script-engine.md](design/adr-001-script-engine.md)） |
+| AC-RPL-011 | 引擎沙箱（L3，仅启用时） | `max_operations` 超限被中止且不计成功；未注册任何文件/网络/时间能力；`call()` 调用出现在审计中且与展开序列一致 |
 
 ### 15.4 检查点与补偿（D4，P2）
 

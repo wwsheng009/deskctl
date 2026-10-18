@@ -68,6 +68,7 @@ CLI/MCP ──► deskctl history      （P0：直读 audit JSONL，过滤/聚�
 | 录制与回放 | [record-replay.md](record-replay.md) | P1 | `desktop_recorder_start/stop`、`desktop_script_run`、`deskctl script` |
 | 检查点与补偿 | [checkpoint-transaction.md](checkpoint-transaction.md) | P2 | `desktop_checkpoint_save/verify`、补偿脚本约定 |
 | 先例调研（GitHub） | [prior-art.md](prior-art.md) | 评审输入 | 同类项目清单、机制对照、7 条修订建议（R1–R7） |
+| 脚本执行层选型（ADR） | [adr-001-script-engine.md](adr-001-script-engine.md) | D3 前置决策 | 自研声明式 JSON（默认）+ L2 受限表达式 + L3 Rhai（opt-in）；不选 wasm/V8/停维护方案 |
 
 ## 4. 里程碑与门禁
 
@@ -85,7 +86,7 @@ CLI/MCP ──► deskctl history      （P0：直读 audit JSONL，过滤/聚�
 
 - **AC-AUD-001..007**：审计落盘、字段完整、失败/未知入账、文本脱敏、轮转与保留、`history` 查询过滤、密码字段与键名单脱敏（R5）。
 - **AC-AGT-001..004**：`session create --owner`、MCP clientInfo 映射、`session list` 显示 owner、按 owner 过滤/限额与 `resource_busy` 语义。
-- **AC-RPL-001..009**：录制写入脚本、脚本版本与校验、dry-run、重放逐步汇总、失败策略与 `not_sent` 安全重试、高风险默认拒绝、hwnd 失效重绑与身份指纹校验（R1/R2）、核验分级 `screen`/`readback`（R3）、run-level `outcome`（R4）。
+- **AC-RPL-001..011**：录制写入脚本、脚本版本与校验、dry-run、重放逐步汇总、失败策略与 `not_sent` 安全重试、高风险默认拒绝、hwnd 失效重绑与身份指纹校验（R1/R2）、核验分级 `screen`/`readback`（R3）、run-level `outcome`（R4）、受限表达式（L2，可选）、引擎沙箱（L3，仅启用时，见 [adr-001-script-engine.md](adr-001-script-engine.md)）。
 - **AC-TXN-001..003**：检查点保存、差异校验、补偿脚本 dry-run 建议。
 - **AC-SEC-011**：屏幕文本注入防御（R6，`<untrusted-screen-content>` 包裹，独立小改动）。
 
