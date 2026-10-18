@@ -1,3 +1,4 @@
+mod bench;
 mod client;
 mod daemon;
 mod mcp;
@@ -88,6 +89,24 @@ enum Commands {
         #[arg(long)]
         token_file: Option<PathBuf>,
     },
+    /// Measure daemon latency for a fixed op (developer utility).
+    #[command(hide = true)]
+    Bench {
+        /// One of screen_size, screenshot, window_screenshot or parallel.
+        #[arg(long, default_value = "screen_size")]
+        op: String,
+        #[arg(long, default_value_t = 30)]
+        count: u32,
+        #[arg(long, default_value_t = 3)]
+        warmup: u32,
+        /// Sessions used by the parallel op.
+        #[arg(long, default_value_t = 8)]
+        parallel: u32,
+        #[arg(long)]
+        socket: Option<String>,
+        #[arg(long)]
+        token_file: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -144,7 +163,7 @@ async fn main() {
         Ok(code) => code,
         Err(error) => {
             eprintln!("deskctl: {error}");
-            1
+            exit_code_for_message(&error)
         }
     };
     std::process::exit(code);
@@ -202,8 +221,9 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
             let token_file = token_file.unwrap_or_else(config::token_path);
             let mut config = config_for(profile);
             config.max_sessions = max_sessions.max(1);
+            let idle_instances = config.max_sessions + 2;
             let engine = Engine::new(config);
-            daemon::run(socket, token_file, engine).await?;
+            daemon::run(socket, token_file, engine, idle_instances).await?;
             Ok(0)
         }
         Commands::Call {
@@ -217,6 +237,8 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
             request_id,
         } => {
             let args = read_args(json, stdin)?;
+            let session_token =
+                session_token.or_else(|| std::env::var("DESKCTL_SESSION_TOKEN").ok());
             let result = client::request(
                 &socket.unwrap_or_else(config::default_socket_name),
                 &token_file.unwrap_or_else(config::token_path),
@@ -263,7 +285,10 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
                     session_token,
                 } => (
                     "session/inspect",
-                    serde_json::json!({ "session_id": id, "session_token": session_token }),
+                    serde_json::json!({
+                        "session_id": id,
+                        "session_token": session_token.or_else(|| std::env::var("DESKCTL_SESSION_TOKEN").ok())
+                    }),
                     socket.unwrap_or_else(config::default_socket_name),
                     token_file.unwrap_or_else(config::token_path),
                 ),
@@ -274,7 +299,10 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
                     session_token,
                 } => (
                     "session/close",
-                    serde_json::json!({ "session_id": id, "session_token": session_token }),
+                    serde_json::json!({
+                        "session_id": id,
+                        "session_token": session_token.or_else(|| std::env::var("DESKCTL_SESSION_TOKEN").ok())
+                    }),
                     socket.unwrap_or_else(config::default_socket_name),
                     token_file.unwrap_or_else(config::token_path),
                 ),
@@ -284,7 +312,9 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
                 "{}",
                 serde_json::to_string_pretty(&result).map_err(|error| error.to_string())?
             );
-            Ok(exit_code_for(&result))
+            // Daemon-level failures surface as errors from the client, so a
+            // printed session result is always a success.
+            Ok(0)
         }
         Commands::Mcp { skill_root } => {
             mcp::run(
@@ -378,6 +408,24 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
             );
             Ok(0)
         }
+        Commands::Bench {
+            op,
+            count,
+            warmup,
+            parallel,
+            socket,
+            token_file,
+        } => {
+            bench::run(bench::BenchOptions {
+                op,
+                count,
+                warmup,
+                parallel,
+                socket: socket.unwrap_or_else(config::default_socket_name),
+                token_file: token_file.unwrap_or_else(config::token_path),
+            })
+            .await
+        }
     }
 }
 
@@ -409,6 +457,16 @@ fn exit_code_for_code(code: &str) -> i32 {
         "platform_not_supported" => 6,
         "policy_denied" | "permission_denied" | "auth_required" => 7,
         _ => 1,
+    }
+}
+
+/// Daemon-level failures travel as `<code>: <message>` strings (see
+/// `ToolError`'s `Display`). Map the leading code to the same exit codes used
+/// for tool results so scripts can branch on them.
+fn exit_code_for_message(message: &str) -> i32 {
+    match message.split_once(':').map(|(prefix, _)| prefix.trim()) {
+        Some(prefix) => exit_code_for_code(prefix),
+        None => 1,
     }
 }
 

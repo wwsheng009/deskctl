@@ -108,12 +108,18 @@ pub async fn run(profile: ToolProfile, skill_root: PathBuf) -> Result<(), String
         let result = match method {
             "initialize" => {
                 initialized = true;
-                Ok(initialize_result(&params))
+                initialize_result(&params)
             }
             "ping" => Ok(json!({})),
-            "tools/list" => Ok(json!({
-                "tools": schema::tool_descriptors(session.profile)
-            })),
+            "tools/list" => {
+                if initialized {
+                    Ok(json!({
+                        "tools": schema::tool_descriptors(session.profile)
+                    }))
+                } else {
+                    Err((-32002, "server is not initialized".to_string()))
+                }
+            }
             "tools/call" => {
                 let Some(name) = params.get("name").and_then(Value::as_str) else {
                     write_response(&writer, id, Err((-32602, "missing tool name".to_string())))
@@ -196,24 +202,24 @@ pub async fn run(profile: ToolProfile, skill_root: PathBuf) -> Result<(), String
                 Ok(json!({ "prompts": prompts }))
             }
             "prompts/get" => {
-                let name = params
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| "missing prompt name".to_string());
-                match name {
-                    Ok(name) => {
-                        let text = read_skill(&skill_root, name)
-                            .unwrap_or_else(|| fallback_skill_prompt(name));
-                        Ok(json!({
-                            "description": format!("Deskctl skill {name}"),
-                            "messages": [{
-                                "role": "user",
-                                "content": { "type": "text", "text": text }
-                            }]
-                        }))
-                    }
-                    Err(error) => Err(error),
-                }
+                let Some(name) = params.get("name").and_then(Value::as_str) else {
+                    write_response(
+                        &writer,
+                        id,
+                        Err((-32602, "missing prompt name".to_string())),
+                    )
+                    .await?;
+                    continue;
+                };
+                let text =
+                    read_skill(&skill_root, name).unwrap_or_else(|| fallback_skill_prompt(name));
+                Ok(json!({
+                    "description": format!("Deskctl skill {name}"),
+                    "messages": [{
+                        "role": "user",
+                        "content": { "type": "text", "text": text }
+                    }]
+                }))
             }
             "shutdown" | "exit" => {
                 if let Some(id) = id {
@@ -221,19 +227,12 @@ pub async fn run(profile: ToolProfile, skill_root: PathBuf) -> Result<(), String
                 }
                 break;
             }
-            other => Err(format!("method not found: {other}")),
+            other => Err((-32601, format!("method not found: {other}"))),
         };
 
         match result {
             Ok(result) => write_response(&writer, id, Ok(result)).await?,
-            Err(error) => {
-                let code = if error.starts_with("method not found") {
-                    -32601
-                } else {
-                    -32602
-                };
-                write_response(&writer, id, Err((code, error))).await?;
-            }
+            Err((code, error)) => write_response(&writer, id, Err((code, error))).await?,
         }
     }
     for task in tasks {
@@ -248,12 +247,19 @@ pub async fn run(profile: ToolProfile, skill_root: PathBuf) -> Result<(), String
     Ok(())
 }
 
-fn initialize_result(params: &Value) -> Value {
+fn initialize_result(params: &Value) -> Result<Value, (i32, String)> {
     let protocol = params
         .get("protocolVersion")
         .and_then(Value::as_str)
         .unwrap_or("2024-11-05");
-    json!({
+    let major = protocol.split('-').next().unwrap_or_default();
+    if !matches!(major, "2024" | "2025") {
+        return Err((
+            -32602,
+            format!("unsupported MCP protocol version: {protocol}"),
+        ));
+    }
+    Ok(json!({
         "protocolVersion": protocol,
         "capabilities": {
             "tools": { "listChanged": false },
@@ -264,7 +270,7 @@ fn initialize_result(params: &Value) -> Value {
             "version": env!("CARGO_PKG_VERSION")
         },
         "instructions": "Deskctl exposes desktop_* tools. Use desktop_semantic_* for Windows UIA, and desktop_perceive for image coordinates. No approval flow is provided."
-    })
+    }))
 }
 
 async fn write_response(

@@ -89,6 +89,17 @@ pub fn capture_window(hwnd: i64) -> Result<CapturedImage, ToolError> {
     let image = window
         .capture_image()
         .map_err(|e| capture_error(e.to_string()))?;
+    if image.width() == 0 || image.height() == 0 {
+        return Err(ToolError::new(
+            ErrorCode::TargetUnavailable,
+            format!(
+                "window {hwnd} returned an empty capture ({}x{}); its render target cannot be captured",
+                image.width(),
+                image.height()
+            ),
+        )
+        .retryable(true));
+    }
     let after = crate::platform::windows::window::window_info(hwnd)?;
     let after_rect = rect_from_info(&after)?;
     if before_rect.x != after_rect.x
@@ -127,6 +138,16 @@ pub fn save_capture(
     policy: &CapturePolicy,
 ) -> Result<EncodedImage, ToolError> {
     encode_and_save(image, path, default_dir, policy)
+}
+
+pub fn save_capture_with_format(
+    image: &RgbaImage,
+    path: Option<&str>,
+    default_dir: &Path,
+    policy: &CapturePolicy,
+    format: Option<&str>,
+) -> Result<EncodedImage, ToolError> {
+    crate::capture_policy::encode_and_save_with_format(image, path, default_dir, policy, format)
 }
 
 pub fn normalize_png_path(path: Option<&str>, default_dir: &Path) -> Result<PathBuf, ToolError> {

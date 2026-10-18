@@ -135,6 +135,16 @@ pub fn encode_and_save(
     default_dir: &Path,
     policy: &CapturePolicy,
 ) -> Result<EncodedImage, ToolError> {
+    encode_and_save_with_format(image, requested_path, default_dir, policy, None)
+}
+
+pub fn encode_and_save_with_format(
+    image: &RgbaImage,
+    requested_path: Option<&str>,
+    default_dir: &Path,
+    policy: &CapturePolicy,
+    requested_format: Option<&str>,
+) -> Result<EncodedImage, ToolError> {
     if requested_path.is_some_and(|value| value.contains('\0')) {
         return Err(ToolError::new(
             ErrorCode::InvalidParams,
@@ -146,10 +156,13 @@ pub fn encode_and_save(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(PathBuf::from);
-    let format = requested
-        .as_deref()
-        .and_then(OutputFormat::from_path)
-        .unwrap_or(policy.format);
+    let format = match requested_format {
+        Some(format) => OutputFormat::parse(format)?,
+        None => requested
+            .as_deref()
+            .and_then(OutputFormat::from_path)
+            .unwrap_or(policy.format),
+    };
     let mut path = match requested {
         Some(path) if path.is_absolute() => path,
         Some(path) => std::env::current_dir()

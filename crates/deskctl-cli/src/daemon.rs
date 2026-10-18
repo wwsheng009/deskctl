@@ -36,7 +36,12 @@ struct DaemonState {
     active: std::sync::Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>,
 }
 
-pub async fn run(socket: String, token_file: PathBuf, engine: Arc<Engine>) -> Result<(), String> {
+pub async fn run(
+    socket: String,
+    token_file: PathBuf,
+    engine: Arc<Engine>,
+    idle_instances: usize,
+) -> Result<(), String> {
     let token = ensure_token(&token_file)?;
     let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
     let state = Arc::new(DaemonState {
@@ -46,13 +51,22 @@ pub async fn run(socket: String, token_file: PathBuf, engine: Arc<Engine>) -> Re
         active: std::sync::Mutex::new(std::collections::HashMap::new()),
     });
 
+    let sweep_engine = engine.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+        loop {
+            interval.tick().await;
+            sweep_engine.sweep_idle_sessions();
+        }
+    });
+
     eprintln!(
         "deskctl daemon listening on {socket}; token file: {}",
         token_file.display()
     );
 
     #[cfg(windows)]
-    let server = tokio::spawn(named_pipe_loop(socket, state.clone()));
+    let server = tokio::spawn(named_pipe_loop(socket, state.clone(), idle_instances));
     #[cfg(not(windows))]
     let server = tokio::spawn(unix_loop(socket, state.clone()));
 
@@ -180,8 +194,8 @@ async fn handle_request(request: Request, state: Arc<DaemonState>) -> Response {
                 Err(error) => return failure(id, error),
             };
             let token = request.params.get("session_token").and_then(Value::as_str);
-            match state.engine.inspect_session(&session_id, token) {
-                Ok(value) => Ok(value),
+            match state.engine.require_session(&session_id, token) {
+                Ok(session) => Ok(session.summary()),
                 Err(error) => return failure(id, error.to_string()),
             }
         }
@@ -202,7 +216,7 @@ async fn handle_request(request: Request, state: Arc<DaemonState>) -> Response {
                 Err(error) => return failure(id, error),
             };
             let token = request.params.get("session_token").and_then(Value::as_str);
-            match state.engine.get_session(&session_id, token) {
+            match state.engine.require_session(&session_id, token) {
                 Ok(session) => Ok(Value::Array(schema::tool_descriptors(session.profile))),
                 Err(error) => return failure(id, error.to_string()),
             }
@@ -226,7 +240,7 @@ async fn handle_request(request: Request, state: Arc<DaemonState>) -> Response {
                 .cloned()
                 .unwrap_or_else(|| serde_json::json!({}));
             let session_token = request.params.get("session_token").and_then(Value::as_str);
-            let session = match state.engine.get_session(&session_id, session_token) {
+            let session = match state.engine.require_session(&session_id, session_token) {
                 Ok(session) => session,
                 Err(error) => return failure(id, error.to_string()),
             };
@@ -314,26 +328,60 @@ fn required_string(params: &Value, key: &str) -> Result<String, String> {
 }
 
 #[cfg(windows)]
-async fn named_pipe_loop(socket: String, state: Arc<DaemonState>) -> Result<(), String> {
+async fn named_pipe_loop(
+    socket: String,
+    state: Arc<DaemonState>,
+    idle_instances: usize,
+) -> Result<(), String> {
     use tokio::net::windows::named_pipe::ServerOptions;
 
-    let mut server = ServerOptions::new()
+    let target = idle_instances.max(1);
+    // Create the first instance eagerly so a second daemon on the same socket
+    // fails fast instead of silently joining an existing pipe.
+    let first = ServerOptions::new()
         .first_pipe_instance(true)
         .create(&socket)
         .map_err(|error| format!("start named pipe '{socket}': {error}"))?;
 
+    // One accept worker per instance: every listening instance always has a
+    // pending connect(), so concurrent clients are picked up regardless of the
+    // order Windows hands out pipe instances.
+    let mut initial = Some(first);
+    let mut workers = tokio::task::JoinSet::new();
+    for index in 0..target {
+        let pending = if index == 0 { initial.take() } else { None };
+        workers.spawn(pipe_accept_worker(socket.clone(), state.clone(), pending));
+    }
+    match workers.join_next().await {
+        Some(Ok(Ok(()))) => Err("named pipe listener stopped unexpectedly".to_string()),
+        Some(Ok(Err(error))) => Err(error),
+        Some(Err(error)) => Err(format!("named pipe listener task failed: {error}")),
+        None => Err("no named pipe listeners were started".to_string()),
+    }
+}
+
+#[cfg(windows)]
+async fn pipe_accept_worker(
+    socket: String,
+    state: Arc<DaemonState>,
+    mut pending: Option<tokio::net::windows::named_pipe::NamedPipeServer>,
+) -> Result<(), String> {
+    use tokio::net::windows::named_pipe::ServerOptions;
+
     loop {
+        let server = match pending.take() {
+            Some(server) => server,
+            None => ServerOptions::new()
+                .create(&socket)
+                .map_err(|error| format!("start named pipe '{socket}': {error}"))?,
+        };
         server
             .connect()
             .await
             .map_err(|error| format!("named pipe connect failed: {error}"))?;
-        let connected = server;
-        server = ServerOptions::new()
-            .create(&socket)
-            .map_err(|error| format!("create next named pipe instance: {error}"))?;
         let state = state.clone();
         tokio::spawn(async move {
-            handle_connection(connected, state).await;
+            handle_connection(server, state).await;
         });
     }
 }

@@ -47,12 +47,7 @@ pub async fn request(
     let payload = serde_json::to_vec(&request).map_err(|error| error.to_string())?;
 
     #[cfg(windows)]
-    let stream = {
-        use tokio::net::windows::named_pipe::ClientOptions;
-        ClientOptions::new()
-            .open(socket)
-            .map_err(|error| format!("connect named pipe '{socket}': {error}"))?
-    };
+    let stream = open_pipe(socket).await?;
     #[cfg(not(windows))]
     let stream = tokio::net::UnixStream::connect(socket)
         .await
@@ -89,4 +84,31 @@ pub async fn request(
             .unwrap_or_else(|| "daemon request failed".to_string()));
     }
     Ok(response.result.unwrap_or(Value::Null))
+}
+
+/// Open the daemon pipe, retrying while every instance is busy
+/// (ERROR_PIPE_BUSY / os error 231) so concurrent clients queue up instead of
+/// failing outright.
+#[cfg(windows)]
+async fn open_pipe(
+    socket: &str,
+) -> Result<tokio::net::windows::named_pipe::NamedPipeClient, String> {
+    use tokio::net::windows::named_pipe::ClientOptions;
+    const ERROR_PIPE_BUSY: i32 = 231;
+    const MAX_RETRIES: u32 = 100;
+    const RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(20);
+
+    let mut attempts = 0;
+    loop {
+        match ClientOptions::new().open(socket) {
+            Ok(client) => return Ok(client),
+            Err(error)
+                if error.raw_os_error() == Some(ERROR_PIPE_BUSY) && attempts < MAX_RETRIES =>
+            {
+                attempts += 1;
+                tokio::time::sleep(RETRY_DELAY).await;
+            }
+            Err(error) => return Err(format!("connect named pipe '{socket}': {error}")),
+        }
+    }
 }

@@ -13,6 +13,7 @@ use crate::platform;
 use crate::session::{CaptureState, ElementLocation, ScreenRect, Session, TargetBinding};
 use crate::vision::locate;
 
+#[derive(Debug)]
 pub struct ToolExecution {
     pub data: Value,
     pub dispatch_state: DispatchState,
@@ -123,11 +124,12 @@ fn screenshot(
 ) -> Result<ToolExecution, ToolError> {
     let capture = platform::capture_screen(optional_region(args))?;
     let policy = crate::capture_policy::CapturePolicy::from_args(args, &engine.config().capture)?;
-    let encoded = platform::save_capture(
+    let encoded = platform::save_capture_with_format(
         &capture.image,
         args.get("path").and_then(Value::as_str),
         &engine.config().output_dir,
         &policy,
+        args.get("format").and_then(Value::as_str),
     )?;
     let capture_id = store_capture(
         session,
@@ -234,11 +236,12 @@ fn window_screenshot(
     };
     let capture = platform::capture_window(hwnd)?;
     let policy = crate::capture_policy::CapturePolicy::from_args(args, &engine.config().capture)?;
-    let encoded = platform::save_capture(
+    let encoded = platform::save_capture_with_format(
         &capture.image,
         args.get("path").and_then(Value::as_str),
         &engine.config().output_dir,
         &policy,
+        args.get("format").and_then(Value::as_str),
     )?;
     let capture_id = store_capture(
         session,
@@ -646,6 +649,38 @@ fn find_text(engine: &Engine, args: &Value) -> Result<ToolExecution, ToolError> 
     })))
 }
 
+/// Validation-only hook for policy tests that must not touch the desktop.
+#[doc(hidden)]
+pub fn execute_sync_for_test(
+    session: &Session,
+    tool: ToolName,
+    args: &Value,
+) -> Result<ToolExecution, ToolError> {
+    let _ = session;
+    match tool {
+        ToolName::FindText => {
+            let dict_name = required_str(args, "dict_name")?;
+            if dict_name.contains("..")
+                || dict_name.contains('/')
+                || dict_name.contains('\\')
+                || Path::new(dict_name).is_absolute()
+            {
+                return Err(ToolError::new(
+                    ErrorCode::PolicyDenied,
+                    "dict_name must be a basename without path separators",
+                ));
+            }
+            Err(ToolError::new(
+                ErrorCode::ModelUnavailable,
+                "validation-only test hook",
+            ))
+        }
+        _ => Err(invalid(
+            "execute_sync_for_test only supports validation-only tools",
+        )),
+    }
+}
+
 async fn wait_for(args: &Value, cancel: &CancelFlag) -> Result<ToolExecution, ToolError> {
     let condition = required_str(args, "condition")?;
     if !matches!(condition, "change" | "stable" | "color") {
@@ -845,6 +880,15 @@ fn targets_list(args: &Value) -> Result<ToolExecution, ToolError> {
 fn target_bind(session: &Session, args: &Value) -> Result<ToolExecution, ToolError> {
     let app_ref = required_str(args, "app_ref")?;
     let window_ref = args.get("window_ref").and_then(Value::as_str);
+    let delivery_mode = args
+        .get("delivery_mode")
+        .and_then(Value::as_str)
+        .unwrap_or("foreground");
+    if !matches!(delivery_mode, "foreground" | "auto" | "background") {
+        return Err(invalid(
+            "delivery_mode must be foreground, auto or background",
+        ));
+    }
     let (pid, app_name) = parse_app_ref(app_ref)?;
     let windows = platform::windows_list()?;
     let matching: Vec<Value> = windows
@@ -901,8 +945,12 @@ fn target_bind(session: &Session, args: &Value) -> Result<ToolExecution, ToolErr
         .as_i64()
         .ok_or_else(|| invalid("selected window has no hwnd"))?;
     let title = selected["title"].as_str().unwrap_or_default().to_string();
-    let foreground = platform::activate_window(hwnd)?;
-    if args.get("delivery_mode").and_then(Value::as_str) == Some("foreground") && !foreground {
+    let foreground = if delivery_mode == "background" {
+        platform::window_info(hwnd)?["foreground"].as_bool() == Some(true)
+    } else {
+        platform::activate_window(hwnd)?
+    };
+    if delivery_mode == "foreground" && !foreground {
         return Err(ToolError::new(
             ErrorCode::TargetUnavailable,
             "target window could not be activated",
@@ -925,7 +973,8 @@ fn target_bind(session: &Session, args: &Value) -> Result<ToolExecution, ToolErr
             "window_ref": format!("win:{hwnd}"),
             "hwnd": hwnd,
             "title": title,
-            "foreground": foreground
+            "foreground": foreground,
+            "delivery_mode": delivery_mode
         }),
         DispatchState::Sent,
     ))

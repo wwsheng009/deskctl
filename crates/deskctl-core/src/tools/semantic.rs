@@ -288,8 +288,8 @@ fn verify_state(session: &Session, args: &Value) -> Result<ToolExecution, ToolEr
             match (
                 matching
                     .first()
-                    .and_then(|node| node["short_value"].as_str()),
-                expected,
+                    .and_then(|node| node["value_fingerprint"].as_str()),
+                expected.map(fingerprint).as_deref(),
             ) {
                 (Some(actual), Some(expected)) if actual == expected => "satisfied",
                 (Some(_), Some(_)) => "unsatisfied",
@@ -495,4 +495,11 @@ fn ensure_foreground(hwnd: i64) -> Result<(), ToolError> {
         )
         .retryable(true))
     }
+}
+
+fn fingerprint(value: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    value.hash(&mut hasher);
+    format!("value:{:016x}", hasher.finish())
 }

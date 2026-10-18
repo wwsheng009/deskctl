@@ -101,6 +101,7 @@ pub struct Session {
     pub token: String,
     pub profile: ToolProfile,
     pub owner: String,
+    pub created_at: Instant,
     captures: Mutex<HashMap<String, CaptureState>>,
     targets: Mutex<HashMap<String, TargetBinding>>,
     observation: Mutex<Option<ObservationState>>,
@@ -122,6 +123,7 @@ impl Session {
             token: format!("st-{}", uuid::Uuid::new_v4().simple()),
             profile,
             owner: owner.into(),
+            created_at: Instant::now(),
             captures: Mutex::new(HashMap::new()),
             targets: Mutex::new(HashMap::new()),
             observation: Mutex::new(None),
@@ -139,6 +141,13 @@ impl Session {
     pub fn close(&self) {
         self.closed.store(true, Ordering::Release);
         if let Ok(mut captures) = self.captures.lock() {
+            let temporary = std::env::temp_dir();
+            for capture in captures.values() {
+                let path = std::path::Path::new(&capture.path);
+                if path.starts_with(&temporary) {
+                    let _ = std::fs::remove_file(path);
+                }
+            }
             captures.clear();
         }
         if let Ok(mut targets) = self.targets.lock() {
@@ -197,7 +206,12 @@ impl Session {
                 .min_by_key(|(_, capture)| capture.created_at)
                 .map(|(id, _)| id.clone())
             {
-                captures.remove(&oldest);
+                if let Some(removed) = captures.remove(&oldest) {
+                    let path = std::path::Path::new(&removed.path);
+                    if path.starts_with(std::env::temp_dir()) {
+                        let _ = std::fs::remove_file(path);
+                    }
+                }
             }
         }
         captures.insert(capture.id.clone(), capture);
@@ -205,6 +219,12 @@ impl Session {
     }
 
     pub fn capture(&self, id: &str) -> Result<CaptureState, ToolError> {
+        if self.is_closed() {
+            return Err(ToolError::new(
+                ErrorCode::ServerRestarted,
+                "session is closed",
+            ));
+        }
         self.captures
             .lock()
             .map_err(|_| internal("capture cache poisoned"))?

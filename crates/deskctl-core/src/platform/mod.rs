@@ -8,7 +8,8 @@ pub use self::imp::*;
 #[cfg(windows)]
 mod imp {
     pub use super::windows::capture::{
-        capture_screen, capture_window, foreground_hwnd, save_capture, screen_size, CapturedImage,
+        capture_screen, capture_window, foreground_hwnd, save_capture, save_capture_with_format,
+        screen_size, CapturedImage,
     };
     pub use super::windows::clipboard::{clean as clipboard_clean, write_text as clipboard_write};
     pub use super::windows::input::{
@@ -59,6 +60,15 @@ mod imp {
         _path: Option<&str>,
         _default_dir: &std::path::Path,
         _policy: &crate::capture_policy::CapturePolicy,
+    ) -> Result<crate::capture_policy::EncodedImage, ToolError> {
+        Err(unsupported())
+    }
+    pub fn save_capture_with_format(
+        _image: &image::RgbaImage,
+        _path: Option<&str>,
+        _default_dir: &std::path::Path,
+        _policy: &crate::capture_policy::CapturePolicy,
+        _format: Option<&str>,
     ) -> Result<crate::capture_policy::EncodedImage, ToolError> {
         Err(unsupported())
     }

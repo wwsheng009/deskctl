@@ -90,6 +90,17 @@ impl VisionEngine {
                 )),
             }));
         }
+        elements.sort_by(|left, right| {
+            left.rect
+                .y
+                .cmp(&right.rect.y)
+                .then(left.rect.x.cmp(&right.rect.x))
+                .then(left.rect.width.cmp(&right.rect.width))
+                .then(left.rect.height.cmp(&right.rect.height))
+        });
+        elements.dedup_by(|left, right| {
+            left.kind == right.kind && left.text == right.text && left.rect == right.rect
+        });
         Ok(elements)
     }
 }

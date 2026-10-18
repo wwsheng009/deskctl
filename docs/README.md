@@ -18,7 +18,7 @@
 | [implementation-status.md](implementation-status.md) | 当前实施进度、已验证能力与剩余缺口 |
 | [capture-compression.md](capture-compression.md) | 截图格式、压缩、缩放与字节上限策略 |
 | [known-limitations.md](known-limitations.md) | 已知限制与发布前注意事项 |
-| [performance-baseline.md](performance-baseline.md) | 性能基线与待测项 |
+| [performance-baseline.md](performance-baseline.md) | 性能基线、本机实测结果与复现方法 |
 | [mcp-service.md](mcp-service.md) | MCP server、tools、prompts、取消、进度、错误映射 |
 | [llm-skills.md](llm-skills.md) | LLM Skill 定义、工具选择、失败恢复、评估 |
 | [extensibility.md](extensibility.md) | 新工具/平台/传输/provider/skill 的扩展机制 |

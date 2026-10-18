@@ -154,6 +154,21 @@ impl Engine {
         Ok(session)
     }
 
+    pub fn require_session(
+        &self,
+        session_id: &str,
+        token: Option<&str>,
+    ) -> Result<Arc<Session>, ToolError> {
+        let token = token.filter(|token| !token.is_empty()).ok_or_else(|| {
+            ToolError::new(
+                ErrorCode::AuthRequired,
+                "session_token is required for daemon calls",
+            )
+            .retryable(false)
+        })?;
+        self.get_session(session_id, Some(token))
+    }
+
     pub fn list_sessions(&self) -> Vec<serde_json::Value> {
         self.sessions
             .read()
@@ -174,7 +189,7 @@ impl Engine {
         session_id: &str,
         token: Option<&str>,
     ) -> Result<serde_json::Value, ToolError> {
-        let session = self.get_session(session_id, token)?;
+        let session = self.require_session(session_id, token)?;
         session.close();
         if let Ok(mut sessions) = self.sessions.write() {
             sessions.remove(session_id);
@@ -204,6 +219,10 @@ impl Engine {
                 }
             }
         }
+    }
+
+    pub fn sweep_idle_sessions(&self) {
+        self.gc_sessions();
     }
 
     pub fn execute_oneshot(

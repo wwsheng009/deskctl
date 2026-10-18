@@ -40,6 +40,8 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 .\target\release\deskctl.exe doctor
 .\scripts\verify-models.ps1
+.\scripts\perf-baseline.ps1      # AC-PERF matrix -> artifacts/perf-baseline.json
+.\scripts\security-check.ps1     # AC-SEC/AC-SESS matrix -> artifacts/security-check.json
 ```
 
 ## CLI

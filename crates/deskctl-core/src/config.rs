@@ -158,7 +158,29 @@ pub fn models_dir() -> Option<PathBuf> {
             .and_then(|path| path.parent().map(|parent| parent.join("models"))),
         Some(PathBuf::from("models")),
     ];
-    candidates.into_iter().flatten().find(|path| path.is_dir())
+    let dirs: Vec<PathBuf> = candidates
+        .into_iter()
+        .flatten()
+        .filter(|path| path.is_dir())
+        .collect();
+    // A stale or empty directory must not shadow one that actually ships
+    // models (for example an empty %LOCALAPPDATA%\deskctl\models sitting in
+    // front of the models/ directory next to the executable).
+    dirs.iter()
+        .find(|path| has_model_files(path))
+        .cloned()
+        .or_else(|| dirs.into_iter().next())
+}
+
+fn has_model_files(dir: &Path) -> bool {
+    [
+        crate::models::OCR_DET_MODEL,
+        crate::models::OCR_REC_MODEL,
+        crate::models::YOLO_MODEL,
+        crate::models::HASHES_FILE,
+    ]
+    .iter()
+    .any(|name| dir.join(name).is_file())
 }
 
 pub fn onnx_runtime_path() -> Option<PathBuf> {
