@@ -67,7 +67,7 @@ CLI/MCP ──► deskctl history      （P0：直读 audit JSONL，过滤/聚�
 | D0 评审 | 本目录 6 份文档评审通过，AC 编号登记到 acceptance-criteria | 文档合入 main |
 | D1 审计（P0） | 审计管道 + `deskctl history` + 配置与轮转 | AC-AUD-001..006；单测/集成通过；daemon 延迟回退 <5%（对比 perf-baseline） |
 | D2 身份（P1） | `--owner` + MCP clientInfo + 按 owner 过滤 + 可选限额 | AC-AGT-001..004 |
-| D3 录放（P1） | recorder + script_run + preflight + CLI | AC-RPL-001..006；E2E：SAP ST06 巡检录制→回放（含失败步定位） |
+| D3 录放（P1） | recorder + script_run + preflight + CLI；目标解析/指纹校验/运行时重绑（见 record-replay §4.4） | AC-RPL-001..007；E2E：SAP ST06 巡检录制→回放（含失败步定位与 hwnd 失效重绑） |
 | D4 检查点（P2） | checkpoint 保存/差异 + 补偿建议（dry-run 优先） | AC-TXN-001..003 |
 
 每个里程碑沿用现有工程门禁：`cargo fmt --check`、`clippy -D warnings`、`cargo test --workspace`（当前基线 59 passed）、契约重导出、真机冒烟、文档更新。
@@ -76,7 +76,7 @@ CLI/MCP ──► deskctl history      （P0：直读 audit JSONL，过滤/聚�
 
 - **AC-AUD-001..006**：审计落盘、字段完整、失败/未知入账、文本脱敏、轮转与保留、`history` 查询过滤。
 - **AC-AGT-001..004**：`session create --owner`、MCP clientInfo 映射、`session list` 显示 owner、按 owner 过滤/限额与 `resource_busy` 语义。
-- **AC-RPL-001..006**：录制写入脚本、脚本版本与校验、dry-run、重放逐步汇总、失败策略与 `not_sent` 安全重试、高风险默认拒绝。
+- **AC-RPL-001..007**：录制写入脚本、脚本版本与校验、dry-run、重放逐步汇总、失败策略与 `not_sent` 安全重试、高风险默认拒绝、hwnd 失效重绑与身份指纹校验。
 - **AC-TXN-001..003**：检查点保存、差异校验、补偿脚本 dry-run 建议。
 
 编号最终以 [../acceptance-criteria.md](../acceptance-criteria.md) 登记为准。

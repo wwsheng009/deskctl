@@ -73,7 +73,7 @@ deskctl script run      --file plan.dscript.json [--dry-run] [--param k=v] [--fr
 
 1. **格式**：`v/format` 校验（未知版本报 `invalid_params`）。
 2. **工具可用性**：每一步 `tool` 必须存在于当前 profile；缺失列出步骤 id。
-3. **目标解析**：`targets.*.match` 在当前窗口列表解析出唯一 hwnd；多命中/零命中 → 报错并提示用 `--param <name>=<hwnd>` 显式指定。
+3. **目标解析**：按 §4.4 的算法把 `targets.*` 解析为唯一目标并重新 `target_bind`；多命中/零命中/指纹不符 → 报错并给出候选与建议（`--param <name>=<hwnd>`、`strictness=loose`、`--allow-relaunch`）。
 4. **变量解析**：所有 `$…` 引用可解析（含 `$steps.*` 前序结果）；未解析 → 报错。
 5. **风险**：每步 `risk ≤ risk_max`（默认 `bounded_write`）；`external_commit` 需 `allow_external_commit=true`；`destructive_critical` **一律拒绝**。
 6. **脆弱性**：`fragile` 步骤计数并警告（`--no-fragile` 可跳过执行）。
@@ -97,7 +97,78 @@ deskctl script run      --file plan.dscript.json [--dry-run] [--param k=v] [--fr
 - `desktop_script_run` 自身的 meta：`requires_session=true`、`read_only=false`、`risk=external_commit`（因为可能触发外部提交），但**默认拒绝**高风险步骤（见 §4.1.5）。
 - 回放不产生审批交互（延续无审批原则）。
 
-## 5. 验收标准（AC-RPL-001..006）
+### 4.4 目标解析与 hwnd 失效处理（目标重绑定）
+
+前提：hwnd 是**易失句柄**——窗口关闭、进程重启、甚至值被系统复用。因此脚本**绝不把裸句柄作为唯一依据**，句柄只允许出现在会话态（`target_token`/`capture_id`），脚本里只保存"描述 + 指纹"。
+
+#### 4.4.1 三层身份模型
+
+| 层 | 内容 | 生命周期 | 用途 |
+|---|---|---|---|
+| 描述层 | `process_name` / `title_contains`(可选正则) / `class_name` / `app_ref`(catalog 引用) / `launch_ref` | 持久（脚本） | 重新找到目标 |
+| 指纹层 | `pid` + `class_name` + `title` + `process_start_time`(可得时)（录制时快照） | 持久（脚本） | 校验"还是不是那个窗口"（防句柄复用） |
+| 句柄层 | `hwnd` → 绑定后的 `target_token`；`capture_id` | 会话态（易失） | 实际执行 |
+
+#### 4.4.2 解析算法（preflight 与运行时失效共用同一函数）
+
+```text
+resolve_target(name, spec, mode) -> {hwnd, token, fingerprint} | error
+  1) spec.hwnd 显式覆盖（--param name=hwnd）→ 校验指纹（按 strictness）
+  2) catalog 引用：spec.app_ref (+ window_ref) → desktop_targets_list 枚举
+       未运行且 (spec.launch_ref 或 allow_relaunch) → 受限启动（≤10s）→ 继续
+  3) 枚举匹配：process_name(=) + title_contains + class_name(=) + window_ref
+       多命中 → 按指纹打分取最高；分差 < 阈值 → 判为歧义，拒绝并返回候选清单
+  4) 零命中 → preflight：报错（候选/建议）；runtime 且 allow_relaunch：受限启动一次后重试
+  → target_bind {delivery_mode:auto, follow_dialog 按 spec} → 记 $target.<名>.{hwnd,token,pid,title,app_ref}
+```
+
+错误分类（供调用方与 LLM 决策，不弹审批）：
+
+| 原因 | 错误码/文案要点 | 建议 |
+|---|---|---|
+| 窗口已关闭/进程退出 | `target_unavailable`：目标不存在 | 启用 `allow_relaunch`（有 `launch_ref` 时默认启用）或 `--param` 指定 |
+| 目标歧义（多窗口同名） | `target_unavailable` + `candidates:[win:*]` | `--param name=<hwnd>` 或补 `window_ref` |
+| 指纹不符（疑似句柄复用） | `target_unavailable`：身份校验失败 | 确认是否重启过；确需继续用 `strictness=loose` |
+
+#### 4.4.3 严格度 `strictness`
+
+| 级别 | 校验 | 适用 |
+|---|---|---|
+| `strict` | pid + class + title + start_time 全等 | 生产/高风险脚本 |
+| `balanced`（默认） | pid + class + title | 一般场景 |
+| `loose` | process_name + title_contains | 频繁重启的开发/测试 |
+
+行为：`strict` 不符即拒绝；`balanced` 不符拒绝并建议显式覆盖；`loose` 警告后继续。**默认拒绝而非猜测**，避免误操作到同名窗口。
+
+#### 4.4.4 执行中失效（runtime rebind）
+
+- 每步执行前，对引用了 `$target.<名>.*` 的步骤做**句柄有效性 + 指纹校验**（`IsWindow` + `window_info`）。
+- 失效 → 自动重跑一次 `resolve_target(mode=runtime)`；成功则刷新变量（新 token/hwnd）并继续本步；失败按 `on_error` 策略。
+- `rebinds` 事件写入 run report：`[{step, reason, from_hwnd, to_hwnd, relaunched}]`；审计（D1 后）可 `history` 复盘"这次为什么重绑/失败"。
+- 记录上限：单次 run 最多 5 次 rebind（防"重启-失败"循环）。
+
+#### 4.4.5 复用现有能力（不另造机制）
+
+- `target_bind` 的 catalog 受限启动与 `follow_dialog`（AC-SEM-017、AC-WIN-007）；
+- `desktop_input`/`desktop_semantic_action` 的 `launch_ref`：窗口缺失时受限启动并重试（`relaunch_and_retry_input`，`crates/deskctl-core/src/tools/mod.rs:525`）；
+- `desktop_windows_list`/`window_info` 提供 pid/class/title 作为指纹来源；`find_window_by_title` 作为兜底；
+- 语义 locator 统一使用 `app_id = $target.<名>.token`（token 由会话持有，与 hwnd 数字解耦）。
+
+#### 4.4.6 录制阶段要做的事
+
+1. 首次解析目标成功后，生成 `targets.<名>`（描述 + 指纹 + 来源 `app_ref`/`launch_ref`）；
+2. 后续步骤里的 `hwnd` 一律改写为 `$target.<名>.hwnd`；
+3. 录制期由 catalog 拉起的应用，自动写入 `app_ref` 且 `allow_relaunch=true`（可用 `recorder_stop {allow_relaunch:false}` 关闭）；
+4. 拿不到指纹（权限/特殊窗口）时在 `warnings` 说明，并给出 `strictness=loose` 建议。
+
+#### 4.4.7 边界
+
+- 同进程多同名窗口：依赖 `window_ref`/候选打分，仍歧义时必须 `--param` 显式指定（不猜）；
+- 应用重启（pid 变化）：`balanced/strict` 会判定身份变化 → 必须经 `launch_ref` 重新绑定并接受新指纹（这是**有意为之**：宁可拒绝也不误点）；
+- 无法获取 pid/start_time 的窗口（部分 UWP/打包应用）→ 只能 `loose`；
+- hwnd 复用且 pid 复用（极端）：`start_time` 可得时由 `strict` 覆盖，否则依赖 title/class 联合校验。
+
+## 5. 验收标准（AC-RPL-001..007）
 
 | 编号 | 通过标准 | 验证方法 |
 |---|---|---|
@@ -107,6 +178,7 @@ deskctl script run      --file plan.dscript.json [--dry-run] [--param k=v] [--fr
 | AC-RPL-004 | `dry_run` 不执行任何工具（审计里无对应调用记录），输出每步判定（执行/跳过/高风险/fragile） | 集成：dry-run 前后 `history` 与屏幕状态不变 |
 | AC-RPL-005 | 重放返回 run report（逐步结果齐全），失败可定位到步骤 id；`on_error=stop/continue` 行为正确 | E2E：真实脚本含 1 个故意失败步骤，两种策略各跑一次 |
 | AC-RPL-006 | 仅 `not_sent` 步骤允许自动重试；`partial/unknown` 不重试（审计可见重试次数与最终状态） | 单测 + 集成（故障注入：工具返回 partial） |
+| AC-RPL-007 | hwnd 失效处理：preflight 在目标关闭后可用 `launch_ref` 受限启动并重新绑定；执行中句柄失效自动重绑一次并在 run report 记录 `rebinds`；三类失败（关闭/歧义/指纹不符）分类正确且默认拒绝；`strictness=loose` 才放宽 | 集成：录放之间关闭应用再拉起；执行中杀窗口；伪造 pid 触发身份校验拒绝 |
 
 ## 6. 测试计划
 
@@ -115,6 +187,7 @@ deskctl script run      --file plan.dscript.json [--dry-run] [--param k=v] [--fr
 - E2E-012（新）：SAP ST06 巡检录制 → 重放（含 `verify` 断言"操作系统监控器"文本）→ 与 E2E-011 手工流程比对步骤数。
 - 安全：高风险步骤拒绝、脚本路径越界拒绝、`volatile` capture 缺失时的报错文案。
 - 性能：`script run` 的额外开销（校验 + 报告）目标 <2ms/步。
+- hwnd 失效（AC-RPL-007）：① 录制后关闭 SAP 会话窗口 → preflight 经 `launch_ref` 受限启动并绑定成功（run report 含 `relaunched=true`）；② 执行中关闭窗口 → 单步自动重绑或按 `on_error` 停止，`rebinds` 记录原因与前后 hwnd；③ 人工制造"同名窗口+pid 不符"→ `balanced` 拒绝并给候选清单。
 
 ## 7. 实施任务分解（D3）
 

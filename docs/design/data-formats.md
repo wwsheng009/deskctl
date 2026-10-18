@@ -100,10 +100,22 @@ JSONL：一行一条。`format` 不在每行重复，由文件头约定（文件
 
 ### 2.2 目标声明（`targets.<name>`）
 
-- `match`：`title_contains` / `process_name` / `app_ref`（由 `desktop_windows_list` 或 `desktop_targets_list` 现场解析出 hwnd；
-  多命中时 preflight 失败并要求调用方用 `--param name=<hwnd>` 显式指定）。
-- `bind`：`delivery_mode`（默认 `auto`）、`follow_dialog`（默认 false）。
-- 绑定结果进入变量：`$target.<name>.hwnd|token|title|app_ref`。
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `match.title_contains` | string | — | 标题包含（可配置为正则，见 `strictness`）；与其它 match 条件为 AND |
+| `match.process_name` | string | — | 进程名（如 `saplogon.exe`），精确匹配 |
+| `match.class_name` | string | — | 窗口类名（如 `SAP_FRONTEND_SESSION`） |
+| `match.app_ref` | string | — | catalog 引用（`desktop_targets_list`）；最稳的匹配方式 |
+| `match.window_ref` | string | — | `win:<hwnd>`，仅用于消歧（不单独依赖） |
+| `fingerprint` | object? | — | 录制时快照：`{pid, class_name, title, process_start_time?}`，重放时校验"还是不是那个窗口" |
+| `strictness` | string? | — | `strict` / `balanced`(默认) / `loose`，见 [record-replay.md §4.4.3](record-replay.md#443-严格度-strictness) |
+| `launch_ref` | string? | — | catalog app_ref；目标未运行时允许受限启动（≤10s） |
+| `allow_relaunch` | bool? | — | 执行中目标消失时是否允许重新拉起（有 `launch_ref` 时默认 true） |
+| `bind.delivery_mode` | string? | — | 默认 `auto` |
+| `bind.follow_dialog` | bool? | — | 默认 false |
+
+绑定结果进入变量：`$target.<name>.hwnd|token|pid|title|class_name|app_ref`。
+解析算法与失效处理详见 [record-replay.md §4.4](record-replay.md#44-目标解析与-hwnd-失效处理目标重绑定)。
 
 ### 2.3 步骤字段
 
@@ -124,7 +136,7 @@ JSONL：一行一条。`format` 不在每行重复，由文件头约定（文件
 
 | 语法 | 来源 | 示例 |
 |---|---|---|
-| `$target.<名>.<字段>` | preflight 绑定结果 | `$target.sap.hwnd` |
+| `$target.<名>.<字段>` | preflight/重绑结果（`hwnd/token/pid/title/class_name/app_ref`） | `$target.sap.hwnd`、`$target.sap.token` |
 | `$param.<键>` | `params` + `--param` 覆盖 | `$param.tcode` |
 | `$var.<名>` | 步骤 `set` 写入 | `$var.sap_token` |
 | `$steps.<id>.result.<路径>` | 历史步骤结果（只读） | `$steps.s5.result.data.capture_id` |
