@@ -1,0 +1,303 @@
+# Deskctl 验收标准
+
+- 文档版本：0.1
+- 日期：2026-10-18
+- 状态：Draft
+- 适用版本：Windows 首个可用版本
+- 关联文档：[architecture.md](architecture.md)、[test-plan.md](test-plan.md)、[mcp-service.md](mcp-service.md)
+
+## 1. 验收原则
+
+1. **可重复**：每条验收项必须能在固定环境、固定测试数据下重复执行。
+2. **可观测**：结果必须能从 JSON 输出、退出码、日志或截图/文件产物中判断。
+3. **安全失败**：不支持、参数错误、平台限制必须返回结构化错误，不能 panic 或假成功。
+4. **状态明确**：所有动作必须区分 `not_sent`、`sent`、`partial`、`unknown`。
+5. **无审批**：不验收 `approve/reject`；风险只作为 `meta.risk` 返回。
+6. **Windows 优先**：首期只对 Windows 10/11 做功能验收；macOS/Linux 只检查可编译占位。
+
+## 2. 范围验收
+
+### AC-SCOPE-001 独立项目
+
+- `deskctl` 不依赖 Tauri、前端资源、LLM SDK、工作流引擎。
+- `cargo tree` 中不存在 `tauri`、`nuphus` 作为运行时依赖。
+- 代码中不包含 `src-tauri` GUI 生命周期。
+
+### AC-SCOPE-002 工具范围
+
+- 默认 `standard` profile 暴露 26 个核心工具。
+- `full` profile 暴露 28 个工具。
+- 只有 `desktop_*`，不出现 `browser_*`、`workflow_*`、`agent_*` 工具。
+- `desktop_vision` 和 `desktop_agent_step` 仅在对应可选功能启用时出现。
+
+### AC-SCOPE-003 平台范围
+
+- Windows 10/11 x64 可构建、可运行、可通过全部 Windows 验收项。
+- macOS/Linux 首期只要求代码路径存在、feature 可配置；不要求运行验收。
+- 不支持平台返回 `platform_not_supported`。
+
+## 3. 功能验收
+
+### 3.1 截图
+
+| 编号 | 验收项 | 通过标准 |
+|---|---|---|
+| AC-CAP-001 | 全屏截图 | 返回 `capture_id`、路径、宽高；PNG 文件可打开 |
+| AC-CAP-002 | 区域截图 | 区域宽高与输出图片一致；坐标从屏幕坐标正确裁剪 |
+| AC-CAP-003 | 窗口截图 | 指定 `hwnd` 可生成窗口 PNG；窗口不存在返回结构化错误 |
+| AC-CAP-004 | 自定义路径 | 接受绝对/相对路径；父目录自动创建；扩展名强制 `.png` |
+| AC-CAP-005 | 路径扩展名 | 输入 `foo.jpg` 时实际输出 `foo.png`，返回路径为 `.png` |
+| AC-CAP-006 | 屏幕尺寸 | `desktop_screen_size` 返回主屏宽高，数值为正 |
+| AC-CAP-007 | 截图失效 | 截图后窗口变化时，窗口截图返回明确错误，不返回旧图 |
+
+### 3.2 窗口
+
+| 编号 | 验收项 | 通过标准 |
+|---|---|---|
+| AC-WIN-001 | 窗口列表 | 返回至少一个可见窗口，含窗口标识、标题、位置、进程信息 |
+| AC-WIN-002 | 窗口激活 | 目标窗口成为前台，返回 `foreground=true` |
+| AC-WIN-003 | 窗口移动 | 移动后 `window_info` 坐标发生变化 |
+| AC-WIN-004 | 窗口缩放 | 缩放后 `window_info` 尺寸发生变化 |
+| AC-WIN-005 | 无效句柄 | 返回 `target_unavailable` 或等价结构化错误 |
+| AC-WIN-006 | 多窗口选择 | 同名窗口不被错误猜测，必须显式选择 |
+
+### 3.3 鼠标
+
+| 编号 | 验收项 | 通过标准 |
+|---|---|---|
+| AC-MOUSE-001 | 鼠标位置 | `position` 返回当前屏幕坐标 |
+| AC-MOUSE-002 | 单击 | 在测试按钮上单击触发一次 UI 事件 |
+| AC-MOUSE-003 | 双击 | 触发双击事件，不误判为两次单击 |
+| AC-MOUSE-004 | 悬停/移动 | 鼠标移动到目标坐标，位置可读回 |
+| AC-MOUSE-005 | 滚轮 | 方向与数量正确，负数/非法方向被拒绝 |
+| AC-MOUSE-006 | 拖拽 | 从起点拖到终点，UI 显示拖拽结果 |
+| AC-MOUSE-007 | capture 引用 | `capture_id + element_id` 可解析为屏幕坐标 |
+| AC-MOUSE-008 | 参数互斥 | `capture_id` 与裸坐标混用被拒绝 |
+| AC-MOUSE-009 | 目标窗口 | 指定 `hwnd` 时窗口未前台则激活或失败，不误点其他窗口 |
+| AC-MOUSE-010 | 派发状态 | 点击返回 `dispatch_state`，不把“已发送”伪装为“业务成功” |
+
+### 3.4 键盘与输入
+
+| 编号 | 验收项 | 通过标准 |
+|---|---|---|
+| AC-INPUT-001 | 文本输入 | 英文、中文、符号可输入；不丢字符 |
+| AC-INPUT-002 | 快捷键 | `ctrl+c`、`alt+tab` 等组合键生效 |
+| AC-INPUT-003 | 回车策略 | `send=enter` 追加回车，`send=none` 不追加 |
+| AC-INPUT-004 | 组合键校验 | 未知键名、空数组被拒绝，不能发送部分按键 |
+| AC-INPUT-005 | target_locator | 可使用稳定 locator 定位目标输入控件 |
+| AC-INPUT-006 | 前台失败 | 目标无法置前时中止，不把文本输入其他窗口 |
+| AC-INPUT-007 | 部分发送 | 文本已输入但后续按键失败时返回 `partial`，不冒充成功 |
+
+### 3.5 剪贴板
+
+| 编号 | 验收项 | 通过标准 |
+|---|---|---|
+| AC-CLIP-001 | 写入 | 写入文本后可在其他应用粘贴 |
+| AC-CLIP-002 | 清理 | `clean` 后剪贴板内容为空 |
+| AC-CLIP-003 | 不读取 | 默认工具集中没有读取剪贴板的工具 |
+| AC-CLIP-004 | 日志脱敏 | 写入内容不出现在日志中 |
+
+### 3.6 找图、找色、找字、等待
+
+| 编号 | 验收项 | 通过标准 |
+|---|---|---|
+| AC-FIND-001 | 找图命中 | 已知模板在测试画面中返回正确位置和置信度 |
+| AC-FIND-002 | 找图未命中 | 返回 `found=false` 和诊断信息，不返回错误 |
+| AC-FIND-003 | 多模板 | `|` 分隔模板可逐个尝试 |
+| AC-FIND-004 | 找色 | 已知颜色在区域内返回正确坐标 |
+| AC-FIND-005 | 多颜色 | 锚点 + 偏移点匹配正确 |
+| AC-FIND-006 | 找字 | 已知字库和画面可返回匹配文字与坐标 |
+| AC-FIND-007 | 字库路径安全 | `dict_name` 含 `..`、路径分隔符或绝对路径时被拒绝 |
+| AC-FIND-008 | 字库缺失 | 返回可操作的 `model_unavailable` 或字库缺失错误 |
+| AC-WAIT-001 | change | 区域变化后返回 `met=true` |
+| AC-WAIT-002 | stable | 画面静止达到 `stable_ms` 后返回 `met=true` |
+| AC-WAIT-003 | color | 指定颜色出现后返回 `met=true` |
+| AC-WAIT-004 | 超时 | 超时返回 `met=false`，不是工具错误 |
+| AC-WAIT-005 | 取消 | 取消后停止等待，不返回假阳性 |
+
+### 3.7 感知与 OCR
+
+| 编号 | 验收项 | 通过标准 |
+|---|---|---|
+| AC-PER-001 | OCR | 已知截图返回文字和坐标块 |
+| AC-PER-002 | YOLO | 已知图标截图返回元素框；模型缺失时按配置降级或报错 |
+| AC-PER-003 | 合并结果 | OCR/YOLO 结果去重、合并，元素 ID 稳定 |
+| AC-PER-004 | capture 映射 | 已登记截图返回 `screen_center` 和 `capture_id` |
+| AC-PER-005 | 未登记截图 | 未登记图片返回图像坐标，`screen_center=null` |
+| AC-PER-006 | 模型校验 | 模型缺失/损坏时 `doctor` 和工具错误信息一致 |
+
+### 3.8 语义桌面（Windows UIA）
+
+| 编号 | 验收项 | 通过标准 |
+|---|---|---|
+| AC-SEM-001 | 目标列表 | 返回 app/window 引用，不暴露任意启动路径 |
+| AC-SEM-002 | 目标绑定 | 返回 target token；重复窗口要求显式选择 |
+| AC-SEM-003 | 语义观察 | 返回观察 token、候选动作和可读元素 |
+| AC-SEM-004 | 候选查询 | candidate_id 只能属于当前观察 |
+| AC-SEM-005 | 候选执行 | 执行成功返回 receipt、验证结果和 workflow step |
+| AC-SEM-006 | 持久化动作 | locator 可跨进程重放，不依赖临时 candidate_id |
+| AC-SEM-007 | 状态验证 | `desktop_verify_state` 返回 satisfied/unsatisfied/unknown |
+| AC-SEM-008 | 过期观察 | 120 秒后或 session 关闭后 token 失效 |
+| AC-SEM-009 | 前台变化 | 执行前窗口变化时拒绝动作，不误操作 |
+| AC-SEM-010 | 跨 session | 一个 session 的 token 不能用于另一个 session |
+| AC-SEM-011 | 无审批 | 关键动作不弹出批准请求；结果带风险元数据 |
+| AC-SEM-012 | 可选增强 | `desktop_agent_step` 未启用时不出现在工具列表 |
+
+## 4. 多会话与状态验收
+
+| 编号 | 验收项 | 通过标准 |
+|---|---|---|
+| AC-SESS-001 | 多会话并发 | 同一 daemon 同时存在 ≥2 个 session，均可截图/观察 |
+| AC-SESS-002 | 状态隔离 | A 的 capture/target/observation token 在 B 中无效 |
+| AC-SESS-003 | 输入串行 | 两个 session 同时请求点击时，动作不交叉；按资源门顺序执行 |
+| AC-SESS-004 | 读并行 | 两个 session 可同时截图/窗口枚举，不互相阻塞 |
+| AC-SESS-005 | 会话关闭 | 关闭 session 后其 token 全部失效 |
+| AC-SESS-006 | daemon 重启 | 重启后旧 token 全部失效，不恢复已发送动作 |
+| AC-SESS-007 | 会话上限 | 超过配置上限时返回 `resource_busy`，不崩溃 |
+| AC-SESS-008 | 资源泄漏 | 关闭会话后 capture cache、锁和临时文件被清理 |
+| AC-SESS-009 | 公平性 | 长时间 session 不永久饿死新 session |
+
+## 5. 协议与 MCP 验收
+
+| 编号 | 验收项 | 通过标准 |
+|---|---|---|
+| AC-MCP-001 | initialize | 返回协议版本、server 版本、平台、capabilities |
+| AC-MCP-002 | tools/list | 返回当前 profile 的 26/28 工具，名称和 Schema 合法 |
+| AC-MCP-003 | tools/call | 同步调用返回 JSON 内容；错误映射为 `isError` |
+| AC-MCP-004 | stdout 纯净 | MCP 模式下 stdout 只有协议 JSON，日志全部走 stderr |
+| AC-MCP-005 | 隐式 session | MCP 进程退出后 session 关闭，token 失效 |
+| AC-MCP-006 | 取消 | MCP cancellation 能取消等待中的请求 |
+| AC-MCP-007 | 进度 | 长任务支持 progress token 事件 |
+| AC-MCP-008 | 工具列表变化 | profile/feature 变化时发送 list_changed（如支持） |
+| AC-MCP-009 | 版本不匹配 | daemon/client 主版本不匹配时拒绝连接 |
+| AC-MCP-010 | 无审批方法 | `tools/list` 和 `prompts/list` 中不存在 approve/reject |
+| AC-MCP-011 | 大结果 | 语义候选分页，单次响应不超过配置上限 |
+| AC-MCP-012 | 技能 prompts | 可选暴露 `desktop-basic` 等 skills，内容与 docs 一致 |
+
+## 6. CLI 验收
+
+| 编号 | 验收项 | 通过标准 |
+|---|---|---|
+| AC-CLI-001 | help | `deskctl --help` 列出 `mcp/serve/call/tool/session/doctor` |
+| AC-CLI-002 | doctor | 输出平台、权限、模型、ONNX Runtime、socket 状态 |
+| AC-CLI-003 | tool | `--json`、`--json @file`、`--stdin` 均可工作 |
+| AC-CLI-004 | call | 可指定 session 调用有状态工具 |
+| AC-CLI-005 | session | create/list/inspect/close 可用 |
+| AC-CLI-006 | cancel | 指定 request_id 可取消请求 |
+| AC-CLI-007 | 退出码 | 成功/参数错误/状态过期/资源忙/平台不支持/策略拒绝区分 |
+| AC-CLI-008 | stdout/stderr | 机器 JSON 与日志分离 |
+| AC-CLI-009 | 单实例 | 重复启动 daemon 不产生第二个实例 |
+| AC-CLI-010 | token | 无 token 或错误 token 被拒绝 |
+
+## 7. 错误、取消与重试验收
+
+| 编号 | 验收项 | 通过标准 |
+|---|---|---|
+| AC-ERR-001 | 参数错误 | 返回 `invalid_params`，不执行动作 |
+| AC-ERR-002 | 未知工具 | 返回 `unknown_tool` |
+| AC-ERR-003 | 平台不支持 | 返回 `platform_not_supported` |
+| AC-ERR-004 | 状态过期 | 返回 `stale_capture` / `stale_observation` |
+| AC-ERR-005 | 已发送未知 | 返回 `dispatch_unknown`，`retryable=false` |
+| AC-ERR-006 | 超时 | 超时不等于取消，已发送动作不自动重试 |
+| AC-ERR-007 | 取消 | 取消后不产生后续动作；已发送动作仍需复观察 |
+| AC-ERR-008 | 部分发送 | 输入文本成功、后续按键失败时返回 `partial` |
+| AC-ERR-009 | 资源忙 | 返回 `resource_busy`，不阻塞或串错 session |
+| AC-ERR-010 | panic | 工具 panic 被捕获，daemon 不崩溃 |
+
+## 8. 性能与资源验收
+
+在固定 Windows 参考机器、release 构建下测量，记录 p50/p95：
+
+| 编号 | 指标 | 目标 |
+|---|---|---|
+| AC-PERF-001 | CLI `--help` 启动 | p95 < 200 ms |
+| AC-PERF-002 | daemon 就绪（不加载模型） | p95 < 2 s |
+| AC-PERF-003 | 本地 IPC 往返 | p95 < 20 ms |
+| AC-PERF-004 | 1080p 全屏截图（warm） | p95 < 300 ms |
+| AC-PERF-005 | 窗口截图（warm） | p95 < 500 ms |
+| AC-PERF-006 | OCR warm 感知 | 记录 p50/p95，不得比基线回退 >20% |
+| AC-PERF-007 | 100 次连续调用 | 内存无持续增长；warm 后增长 < 10% |
+| AC-PERF-008 | 8 个并发 session | 无死锁、无 session 串扰、无明显饥饿 |
+| AC-PERF-009 | 会话关闭 | capture/temp 资源释放，30 秒内回到稳定水平 |
+| AC-PERF-010 | 模型加载 | 首次加载有明确进度/日志；不阻塞其他只读工具 |
+
+性能未达标不一定是功能阻塞，但必须记录基线、硬件、模型版本和构建配置。
+
+## 9. 安全验收
+
+| 编号 | 验收项 | 通过标准 |
+|---|---|---|
+| AC-SEC-001 | 本地监听 | 默认只开 Named Pipe/Unix Socket，不监听公网 |
+| AC-SEC-002 | 访问控制 | 无 token/错误 token 无法连接 |
+| AC-SEC-003 | 无审批 | 不存在 approve/reject 命令、MCP 工具或 pending 队列 |
+| AC-SEC-004 | 风险元数据 | 关键动作返回 `meta.risk`，但不停顿 |
+| AC-SEC-005 | 自定义截图路径 | 合法路径可写；父目录自动创建；扩展名强制 `.png` |
+| AC-SEC-006 | 字库路径穿越 | `dict_name` 含 `..`/分隔符/绝对路径被拒绝 |
+| AC-SEC-007 | 输入读取限制 | 模板/视觉图片只从允许目录读取 |
+| AC-SEC-008 | 日志脱敏 | 输入文本、剪贴板、窗口标题、截图不进入普通日志 |
+| AC-SEC-009 | 会话隔离 | 不能读取其他 session 的 capture/target/observation |
+| AC-SEC-010 | 无脚本执行 | 工具参数不能执行 shell、脚本或任意可执行文件 |
+| AC-SEC-011 | 端口暴露 | 可选 HTTP 默认关闭；开启时只绑定 127.0.0.1 |
+| AC-SEC-012 | 强隔离说明 | 文档明确：无审批不是安全沙箱 |
+
+## 10. 模型与安装包验收
+
+| 编号 | 验收项 | 通过标准 |
+|---|---|---|
+| AC-PKG-001 | Windows 安装包 | 包含 `deskctl.exe`、ONNX Runtime、PaddleOCR、YOLO 模型 |
+| AC-PKG-002 | 模型校验 | 安装后 `deskctl doctor` 通过 SHA-256 校验 |
+| AC-PKG-003 | 离线安装 | 无网络环境可用随包模型完成 OCR/感知 |
+| AC-PKG-004 | 在线更新 | 可选择从配置源下载/更新模型，失败不破坏现有安装 |
+| AC-PKG-005 | 卸载 | 卸载不删除用户自定义截图目录 |
+| AC-PKG-006 | 许可证 | 安装包包含 PaddleOCR/YOLO/ONNX Runtime 的许可证声明 |
+| AC-PKG-007 | 无模型降级 | 模型缺失时非视觉工具仍可用，视觉工具返回 `model_unavailable` |
+
+## 11. 扩展性验收
+
+| 编号 | 验收项 | 通过标准 |
+|---|---|---|
+| AC-EXT-001 | 新增工具 | 只需新增 Schema、executor、metadata 和契约测试，不改 core 主流程 |
+| AC-EXT-002 | 新增平台 | 通过 trait + feature 接入，不修改工具协议 |
+| AC-EXT-003 | 新增传输 | MCP/HTTP 作为 adapter，不修改桌面核心 |
+| AC-EXT-004 | 新增视觉 provider | 通过统一接口接入，不绑定具体供应商 |
+| AC-EXT-005 | 新增 skill | 只需 `skill.json` + `SKILL.md` + eval，不改 daemon |
+| AC-EXT-006 | 工具 profile | 新工具可声明 profile、平台和状态性 |
+| AC-EXT-007 | 协议兼容 | 增加字段不破坏旧客户端；移除字段需版本升级 |
+| AC-EXT-008 | feature 隔离 | 未启用平台/模型的代码不进入构建或运行路径 |
+
+## 12. 文档与 skills 验收
+
+| 编号 | 验收项 | 通过标准 |
+|---|---|---|
+| AC-DOC-001 | 架构文档 | 包含进程、协议、状态、平台、模型、安全、扩展机制 |
+| AC-DOC-002 | 测试计划 | 覆盖单元、契约、集成、E2E、性能、安全、故障注入 |
+| AC-DOC-003 | MCP 文档 | 包含 initialize、tools/list、tools/call、取消、进度、错误映射 |
+| AC-DOC-004 | skills | 每个 skill 有 manifest、prompt、适用工具、失败恢复和示例 |
+| AC-DOC-005 | 验收标准 | 每条验收项可重复、可观测、有明确通过条件 |
+| AC-DOC-006 | 版本记录 | 协议、工具 Schema、skills 均有版本号 |
+
+## 13. 发布门禁
+
+Windows 首个可用版本必须同时满足：
+
+- [ ] AC-SCOPE 全部通过
+- [ ] 传统桌面工具 P0 用例全部通过
+- [ ] 语义 UIA P0 用例全部通过
+- [ ] 多 session 并发和隔离通过
+- [ ] MCP `initialize` / `tools/list` / `tools/call` 通过
+- [ ] CLI 验收通过
+- [ ] 错误与重试验收通过
+- [ ] 安全验收通过
+- [ ] 模型随包和 `doctor` 通过
+- [ ] 性能基线记录完成
+- [ ] 文档和 skills 完成
+- [ ] 无 Tauri/LLM/工作流依赖
+
+## 14. 已知不在首期验收范围
+
+- macOS Accessibility 真机行为
+- Linux X11/Wayland 行为
+- `desktop_vision` 的供应商兼容矩阵
+- `desktop_agent_step` 的增强模型质量
+- 超大规模并发（>8 session）和长时间稳定性
+- 受保护内容/DRM 窗口的截图

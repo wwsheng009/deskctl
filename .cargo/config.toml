@@ -1,0 +1,6 @@
+[build]
+target-dir = "target"
+
+[env]
+RUST_BACKTRACE = "1"
+RUST_MIN_STACK = "16777216"

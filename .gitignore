@@ -1,0 +1,27 @@
+# Build output
+/target/
+**/target/
+/artifacts/
+/debug_ocr/
+
+# Local model assets (download or package separately)
+/models/*.onnx
+/models/*.txt
+/models/hashes.json
+
+# Native runtime assets (fetched by scripts/fetch-runtime.ps1)
+/third_party/onnxruntime/**/*.dll
+/third_party/onnxruntime/**/*.so
+/third_party/onnxruntime/**/*.dylib
+
+# Logs and local state
+*.log
+*.tmp
+.deskctl/
+.aicli/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

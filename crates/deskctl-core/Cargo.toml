@@ -1,0 +1,37 @@
+[package]
+name = "deskctl-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+deskctl-protocol = { path = "../deskctl-protocol" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+dirs.workspace = true
+image.workspace = true
+sha2.workspace = true
+hex.workspace = true
+xcap.workspace = true
+ort.workspace = true
+ndarray.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.56", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_System_Threading",
+    "Win32_System_ProcessStatus",
+    "Win32_Graphics_Gdi",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    "Win32_System_Com",
+    "Win32_UI_Accessibility",
+] }

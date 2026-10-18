@@ -1,0 +1,322 @@
+use deskctl_core::Engine;
+use deskctl_protocol::{schema, ToolName, ToolProfile, ToolResult};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::sync::watch;
+
+#[derive(Debug, Deserialize)]
+struct Request {
+    #[serde(default)]
+    token: String,
+    #[serde(default)]
+    id: Option<String>,
+    method: String,
+    #[serde(default)]
+    params: Value,
+}
+
+#[derive(Debug, Serialize)]
+struct Response {
+    id: Option<String>,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    result: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+struct DaemonState {
+    engine: Arc<Engine>,
+    token: String,
+    shutdown: watch::Sender<bool>,
+}
+
+pub async fn run(socket: String, token_file: PathBuf, engine: Arc<Engine>) -> Result<(), String> {
+    let token = ensure_token(&token_file)?;
+    let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
+    let state = Arc::new(DaemonState {
+        engine: engine.clone(),
+        token,
+        shutdown: shutdown_tx,
+    });
+
+    eprintln!(
+        "deskctl daemon listening on {socket}; token file: {}",
+        token_file.display()
+    );
+
+    #[cfg(windows)]
+    let server = tokio::spawn(named_pipe_loop(socket, state.clone()));
+    #[cfg(not(windows))]
+    let server = tokio::spawn(unix_loop(socket, state.clone()));
+
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {},
+        _ = shutdown_rx.changed() => {},
+        result = server => {
+            match result {
+                Ok(Ok(())) => return Err("daemon listener stopped unexpectedly".to_string()),
+                Ok(Err(error)) => return Err(error),
+                Err(error) => return Err(format!("daemon listener task failed: {error}")),
+            }
+        }
+    }
+
+    engine.request_shutdown();
+    Ok(())
+}
+
+fn ensure_token(path: &Path) -> Result<String, String> {
+    if let Ok(value) = std::fs::read_to_string(path) {
+        let value = value.trim().to_string();
+        if !value.is_empty() {
+            return Ok(value);
+        }
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("create token directory '{}': {error}", parent.display()))?;
+    }
+    let token = format!("dt_{}", uuid::Uuid::new_v4().simple());
+    std::fs::write(path, &token)
+        .map_err(|error| format!("write token file '{}': {error}", path.display()))?;
+    Ok(token)
+}
+
+async fn handle_connection<S>(stream: S, state: Arc<DaemonState>)
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let (read_half, mut write_half) = tokio::io::split(stream);
+    let mut reader = BufReader::new(read_half);
+    let mut line = String::new();
+
+    loop {
+        line.clear();
+        match reader.read_line(&mut line).await {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(error) => {
+                tracing::warn!(%error, "read daemon request failed");
+                break;
+            }
+        }
+
+        let response = match serde_json::from_str::<Request>(line.trim()) {
+            Ok(request) => handle_request(request, state.clone()).await,
+            Err(error) => Response {
+                id: None,
+                ok: false,
+                result: None,
+                error: Some(format!("invalid request: {error}")),
+            },
+        };
+        let payload = match serde_json::to_vec(&response) {
+            Ok(payload) => payload,
+            Err(error) => {
+                tracing::error!(%error, "serialize daemon response failed");
+                break;
+            }
+        };
+        if write_half.write_all(&payload).await.is_err()
+            || write_half.write_all(b"\n").await.is_err()
+            || write_half.flush().await.is_err()
+        {
+            break;
+        }
+    }
+}
+
+async fn handle_request(request: Request, state: Arc<DaemonState>) -> Response {
+    let id = request.id.clone();
+    if request.token != state.token {
+        return Response {
+            id,
+            ok: false,
+            result: None,
+            error: Some("permission_denied: invalid daemon token".to_string()),
+        };
+    }
+
+    let result = match request.method.as_str() {
+        "ping" => Ok(serde_json::json!({ "pong": true })),
+        "doctor" => {
+            let mut report = deskctl_core::doctor::report();
+            if let Some(object) = report.as_object_mut() {
+                object.insert(
+                    "daemon".to_string(),
+                    serde_json::json!({
+                        "uptime_ms": state.engine.uptime_ms(),
+                        "session_count": state.engine.list_sessions().len(),
+                        "shutting_down": state.engine.shutdown_requested()
+                    }),
+                );
+            }
+            Ok(report)
+        }
+        "session/create" => {
+            let profile = match request.params.get("profile").and_then(Value::as_str) {
+                Some(value) => match value.parse::<ToolProfile>() {
+                    Ok(profile) => Some(profile),
+                    Err(error) => return failure(id, error),
+                },
+                None => None,
+            };
+            match state.engine.create_session(profile, "daemon-client") {
+                Ok(info) => Ok(serde_json::to_value(info).unwrap_or(Value::Null)),
+                Err(error) => return failure(id, error.to_string()),
+            }
+        }
+        "session/list" => Ok(Value::Array(state.engine.list_sessions())),
+        "session/inspect" => {
+            let session_id = match required_string(&request.params, "session_id") {
+                Ok(value) => value,
+                Err(error) => return failure(id, error),
+            };
+            match state.engine.inspect_session(&session_id, None) {
+                Ok(value) => Ok(value),
+                Err(error) => return failure(id, error.to_string()),
+            }
+        }
+        "session/close" => {
+            let session_id = match required_string(&request.params, "session_id") {
+                Ok(value) => value,
+                Err(error) => return failure(id, error),
+            };
+            match state.engine.close_session(&session_id, None) {
+                Ok(value) => Ok(value),
+                Err(error) => return failure(id, error.to_string()),
+            }
+        }
+        "tools/list" => {
+            let session_id = match required_string(&request.params, "session_id") {
+                Ok(value) => value,
+                Err(error) => return failure(id, error),
+            };
+            match state.engine.get_session(&session_id, None) {
+                Ok(session) => Ok(Value::Array(schema::tool_descriptors(session.profile))),
+                Err(error) => return failure(id, error.to_string()),
+            }
+        }
+        "tools/call" => {
+            let session_id = match required_string(&request.params, "session_id") {
+                Ok(value) => value,
+                Err(error) => return failure(id, error),
+            };
+            let tool_name = match required_string(&request.params, "tool") {
+                Ok(value) => value,
+                Err(error) => return failure(id, error),
+            };
+            let tool = match tool_name.parse::<ToolName>() {
+                Ok(tool) => tool,
+                Err(error) => return failure(id, error),
+            };
+            let arguments = request
+                .params
+                .get("arguments")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({}));
+            let session = match state.engine.get_session(&session_id, None) {
+                Ok(session) => session,
+                Err(error) => return failure(id, error.to_string()),
+            };
+            let result: ToolResult = state
+                .engine
+                .execute_with_session(
+                    session,
+                    tool,
+                    arguments,
+                    request.id.clone(),
+                    Arc::new(AtomicBool::new(false)),
+                )
+                .await;
+            serde_json::to_value(result).map_err(|error| error.to_string())
+        }
+        "shutdown" => {
+            state.engine.request_shutdown();
+            let _ = state.shutdown.send(true);
+            Ok(serde_json::json!({ "shutting_down": true }))
+        }
+        other => Err(format!("unknown method '{other}'")),
+    };
+
+    match result {
+        Ok(result) => Response {
+            id,
+            ok: true,
+            result: Some(result),
+            error: None,
+        },
+        Err(error) => failure(id, error),
+    }
+}
+
+fn failure(id: Option<String>, error: impl Into<String>) -> Response {
+    Response {
+        id,
+        ok: false,
+        result: None,
+        error: Some(error.into()),
+    }
+}
+
+fn required_string(params: &Value, key: &str) -> Result<String, String> {
+    params
+        .get(key)
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+        .ok_or_else(|| format!("missing required parameter '{key}'"))
+}
+
+#[cfg(windows)]
+async fn named_pipe_loop(socket: String, state: Arc<DaemonState>) -> Result<(), String> {
+    use tokio::net::windows::named_pipe::ServerOptions;
+
+    let mut server = ServerOptions::new()
+        .first_pipe_instance(true)
+        .create(&socket)
+        .map_err(|error| format!("start named pipe '{socket}': {error}"))?;
+
+    loop {
+        server
+            .connect()
+            .await
+            .map_err(|error| format!("named pipe connect failed: {error}"))?;
+        let connected = server;
+        server = ServerOptions::new()
+            .create(&socket)
+            .map_err(|error| format!("create next named pipe instance: {error}"))?;
+        let state = state.clone();
+        tokio::spawn(async move {
+            handle_connection(connected, state).await;
+        });
+    }
+}
+
+#[cfg(not(windows))]
+async fn unix_loop(socket: String, state: Arc<DaemonState>) -> Result<(), String> {
+    use tokio::net::UnixListener;
+
+    if Path::new(&socket).exists() {
+        if tokio::net::UnixStream::connect(&socket).await.is_ok() {
+            return Err(format!("daemon already running on '{socket}'"));
+        }
+        let _ = std::fs::remove_file(&socket);
+    }
+    let listener = UnixListener::bind(&socket)
+        .map_err(|error| format!("bind unix socket '{socket}': {error}"))?;
+    loop {
+        let (stream, _) = listener
+            .accept()
+            .await
+            .map_err(|error| format!("accept unix socket connection: {error}"))?;
+        let state = state.clone();
+        tokio::spawn(async move {
+            handle_connection(stream, state).await;
+        });
+    }
+}
