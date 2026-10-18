@@ -40,9 +40,14 @@
   使用 `image_path` 的裁剪不会登记新 capture（无屏幕坐标映射），需要链式点击/OCR 时请用
   `capture_id` 作为来源。
 - 办公文档工具为最简 OOXML 实现：`desktop_docx_save` 支持标题/小节/正文/表格/PNG 图片与
-  图注（暂不支持样式模板、页眉页脚，大图按 15cm 默认宽度等比缩放）；`desktop_xlsx_save`
-  仅内联字符串/数值/布尔（读回上限 500 行×100 列并返回 `truncated`，写出上限 20,000 行×500 列）；
-  `desktop_pptx_save` 仅标题+要点（不支持图片/版式/演讲者备注）。
+  图注，以及页眉/页脚/页码（`header`/`footer`/`page_numbers`；页码为 PAGE 域占位 1，
+  打开时由 Word 更新；`desktop_docx_read` 以 `{PAGE}` 回读该字段；暂不支持样式模板，
+  大图按 15cm 默认宽度等比缩放）；`desktop_xlsx_save` 支持内联字符串/数值/布尔、多工作表、
+  表头加粗（`header_row`）、冻结首行（`freeze_header`）、按列宽度与 Excel 数字格式
+  （`columns[].width`/`number_format`，自定义格式写入 numFmtId≥164；读回上限 500 行×100 列
+  并返回 `truncated`，写出上限 20,000 行×500 列；无公式/合并单元格/条件格式）；
+  `desktop_pptx_save` 支持标题/要点/内嵌 PNG 图片与版式选择（auto/title_bullets/title_image/
+  text_image/title_only），暂不支持演讲者备注、图表与多图页。
 - `desktop_docx_read`/`desktop_xlsx_read`/`desktop_pptx_read` 的输入路径遵循与图片相同的
   允许根策略，越界返回 `policy_denied`（错误文案沿用 "image path is outside configured image roots"）。
 - 自定义截图路径不受沙箱限制，调用方负责路径与覆盖策略。

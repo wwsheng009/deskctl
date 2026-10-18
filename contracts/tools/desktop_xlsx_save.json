@@ -1,6 +1,6 @@
 {
   "name": "desktop_xlsx_save",
-  "description": "Write a .xlsx workbook from sheets of typed cell values.",
+  "description": "Write a .xlsx workbook from sheets of typed cell values, with bold header row, column widths, number formats and frozen header.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -16,6 +16,31 @@
           "properties": {
             "name": {
               "type": "string"
+            },
+            "header_row": {
+              "type": "boolean"
+            },
+            "freeze_header": {
+              "type": "boolean"
+            },
+            "columns": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "width": {
+                    "type": "number",
+                    "minimum": 1,
+                    "maximum": 255
+                  },
+                  "number_format": {
+                    "type": "string",
+                    "maxLength": 128
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              }
             },
             "rows": {
               "type": "array",

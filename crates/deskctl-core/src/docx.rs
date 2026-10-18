@@ -36,12 +36,45 @@ pub enum Block {
     },
 }
 
+/// 文档级排版选项（页眉/页脚/页码）。
+#[derive(Debug, Clone, Default)]
+pub struct DocumentOptions {
+    /// 页眉文本（居中）。
+    pub header: Option<String>,
+    /// 页脚文本（居中，与页码字段并列）。
+    pub footer: Option<String>,
+    /// 在页脚加入 `PAGE` 域（打开/打印时由 Word 更新为实际页码）。
+    pub page_numbers: bool,
+}
+
+const IMAGE_RELATION: &str =
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image";
+const HEADER_RELATION: &str =
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/header";
+const FOOTER_RELATION: &str =
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer";
+
 /// 写出 `.docx`，返回文件字节数。
-pub fn write_document(path: &Path, blocks: &[Block]) -> Result<u64, ToolError> {
+pub fn write_document(
+    path: &Path,
+    blocks: &[Block],
+    options: &DocumentOptions,
+) -> Result<u64, ToolError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|error| internal(format!("create output directory: {error}")))?;
     }
+    let header = options
+        .header
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty());
+    let footer = options
+        .footer
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty());
+    let has_footer = footer.is_some() || options.page_numbers;
     let file = File::create(path).map_err(|error| internal(format!("create document: {error}")))?;
     let mut zip = ZipWriter::new(file);
 
@@ -51,7 +84,7 @@ pub fn write_document(path: &Path, blocks: &[Block]) -> Result<u64, ToolError> {
         r#"<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><w:body>"#,
     );
 
-    let mut rels: Vec<(String, String)> = Vec::new();
+    let mut rels: Vec<(String, String, &'static str)> = Vec::new();
     let mut media: Vec<Vec<u8>> = Vec::new();
     let mut image_index = 0usize;
     let mut drawing_id = 1u32;
@@ -80,7 +113,11 @@ pub fn write_document(path: &Path, blocks: &[Block]) -> Result<u64, ToolError> {
                     image_index,
                 ));
                 drawing_id += 1;
-                rels.push((relationship, format!("media/image{image_index}.png")));
+                rels.push((
+                    relationship,
+                    format!("media/image{image_index}.png"),
+                    IMAGE_RELATION,
+                ));
                 media.push(png.clone());
                 if let Some(caption) = caption {
                     document.push_str(&paragraph(caption, 18, false, true));
@@ -88,8 +125,38 @@ pub fn write_document(path: &Path, blocks: &[Block]) -> Result<u64, ToolError> {
             }
         }
     }
+    if header.is_some() || has_footer {
+        document.push_str("<w:sectPr>");
+        if header.is_some() {
+            document.push_str(r#"<w:headerReference w:type="default" r:id="rIdHeader1"/>"#);
+        }
+        if has_footer {
+            document.push_str(r#"<w:footerReference w:type="default" r:id="rIdFooter1"/>"#);
+        }
+        document.push_str(
+            r#"<w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr>"#,
+        );
+    }
     document.push_str("</w:body></w:document>");
-    write_entry(&mut zip, "[Content_Types].xml", CONTENT_TYPES.as_bytes())?;
+    if header.is_some() {
+        rels.push((
+            "rIdHeader1".to_string(),
+            "header1.xml".to_string(),
+            HEADER_RELATION,
+        ));
+    }
+    if has_footer {
+        rels.push((
+            "rIdFooter1".to_string(),
+            "footer1.xml".to_string(),
+            FOOTER_RELATION,
+        ));
+    }
+    write_entry(
+        &mut zip,
+        "[Content_Types].xml",
+        content_types(header.is_some(), has_footer).as_bytes(),
+    )?;
     write_entry(&mut zip, "_rels/.rels", ROOT_RELS.as_bytes())?;
     write_entry(&mut zip, "word/document.xml", document.as_bytes())?;
     write_entry(
@@ -97,6 +164,20 @@ pub fn write_document(path: &Path, blocks: &[Block]) -> Result<u64, ToolError> {
         "word/_rels/document.xml.rels",
         document_rels(&rels).as_bytes(),
     )?;
+    if header.is_some() {
+        write_entry(
+            &mut zip,
+            "word/header1.xml",
+            header_footer_part("w:hdr", header, false).as_bytes(),
+        )?;
+    }
+    if has_footer {
+        write_entry(
+            &mut zip,
+            "word/footer1.xml",
+            header_footer_part("w:ftr", footer, options.page_numbers).as_bytes(),
+        )?;
+    }
     for (index, png) in media.iter().enumerate() {
         write_entry(&mut zip, &format!("word/media/image{}.png", index + 1), png)?;
     }
@@ -107,19 +188,54 @@ pub fn write_document(path: &Path, blocks: &[Block]) -> Result<u64, ToolError> {
         .map_err(|error| internal(format!("read document metadata: {error}")))
 }
 
-const CONTENT_TYPES: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>"#;
+fn content_types(header: bool, footer: bool) -> String {
+    let mut xml = String::from(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>"#,
+    );
+    if header {
+        xml.push_str(r#"<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>"#);
+    }
+    if footer {
+        xml.push_str(r#"<Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>"#);
+    }
+    xml.push_str("</Types>");
+    xml
+}
+
+fn header_footer_part(root: &str, text: Option<&str>, page_numbers: bool) -> String {
+    let mut xml = format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<{root} xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:jc w:val="center"/></w:pPr>"#
+    );
+    if let Some(text) = text {
+        xml.push_str(&format!(
+            r#"<w:r><w:t xml:space="preserve">{}</w:t></w:r>"#,
+            escape(text)
+        ));
+        if page_numbers {
+            xml.push_str(r#"<w:r><w:t xml:space="preserve"> </w:t></w:r>"#);
+        }
+    }
+    if page_numbers {
+        xml.push_str(
+            r#"<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>1</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r>"#,
+        );
+    }
+    xml.push_str(&format!("</w:p></{root}>"));
+    xml
+}
 
 const ROOT_RELS: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>"#;
 
-fn document_rels(rels: &[(String, String)]) -> String {
+fn document_rels(rels: &[(String, String, &'static str)]) -> String {
     let mut xml = String::from(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">"#,
     );
-    for (id, target) in rels {
+    for (id, target, kind) in rels {
         xml.push_str(&format!(
-            r#"<Relationship Id="{id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="{target}"/>"#
+            r#"<Relationship Id="{id}" Type="{kind}" Target="{target}"/>"#
         ));
     }
     xml.push_str("</Relationships>");
@@ -226,6 +342,8 @@ pub struct DocxContent {
     pub paragraphs: Vec<String>,
     pub tables: Vec<Vec<Vec<String>>>,
     pub images: usize,
+    pub headers: Vec<String>,
+    pub footers: Vec<String>,
     pub truncated: bool,
 }
 
@@ -243,6 +361,30 @@ pub fn read_document(path: &Path) -> Result<DocxContent, ToolError> {
         })
         .filter(|name| name.starts_with("word/media/"))
         .count();
+    let auxiliary: Vec<String> = (0..archive.len())
+        .filter_map(|index| {
+            archive
+                .by_index(index)
+                .ok()
+                .map(|entry| entry.name().to_string())
+        })
+        .filter(|name| name.starts_with("word/header") || name.starts_with("word/footer"))
+        .collect();
+    let mut headers = Vec::new();
+    let mut footers = Vec::new();
+    for name in auxiliary {
+        let mut xml = String::new();
+        if let Ok(mut entry) = archive.by_name(&name) {
+            if entry.read_to_string(&mut xml).is_ok() {
+                let texts = collect_part_paragraphs(&xml);
+                if name.contains("header") {
+                    headers.extend(texts);
+                } else {
+                    footers.extend(texts);
+                }
+            }
+        }
+    }
     let mut document = String::new();
     {
         let mut entry = archive
@@ -342,12 +484,105 @@ pub fn read_document(path: &Path) -> Result<DocxContent, ToolError> {
         paragraphs,
         tables,
         images,
+        headers,
+        footers,
         truncated,
     })
 }
 
+/// 解析页眉/页脚部件：按段落收集 `w:t` 文本；`PAGE` 域输出为 `{PAGE}` 占位。
+fn collect_part_paragraphs(xml: &str) -> Vec<String> {
+    let mut reader = quick_xml::Reader::from_str(xml);
+    let mut paragraphs = Vec::new();
+    let mut current: Option<String> = None;
+    let mut capturing_text = false;
+    let mut capturing_instr = false;
+    let mut in_field = false;
+    let mut field_marked = false;
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(start)) | Ok(Event::Empty(start)) => {
+                match start.local_name().as_ref() {
+                    b"p" => {
+                        current = Some(String::new());
+                        in_field = false;
+                        field_marked = false;
+                    }
+                    b"t" => capturing_text = true,
+                    b"instrText" => capturing_instr = true,
+                    b"fldChar" => {
+                        if let Some(kind) = attribute_value(&start, b"fldCharType") {
+                            match kind.as_str() {
+                                "begin" => {
+                                    in_field = true;
+                                    field_marked = false;
+                                }
+                                "end" => in_field = false,
+                                _ => {}
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Event::Text(text)) => {
+                let value = text.unescape().unwrap_or_default();
+                if capturing_instr {
+                    if value.contains("PAGE") && !field_marked {
+                        if let Some(paragraph) = current.as_mut() {
+                            paragraph.push_str("{PAGE}");
+                            field_marked = true;
+                        }
+                    }
+                } else if capturing_text && !in_field {
+                    if let Some(paragraph) = current.as_mut() {
+                        paragraph.push_str(&value);
+                    }
+                }
+            }
+            Ok(Event::End(end)) => match end.local_name().as_ref() {
+                b"t" => capturing_text = false,
+                b"instrText" => capturing_instr = false,
+                b"p" => {
+                    if let Some(text) = current.take() {
+                        let trimmed = text.trim();
+                        if !trimmed.is_empty() && paragraphs.len() < 200 {
+                            paragraphs.push(trimmed.to_string());
+                        }
+                    }
+                }
+                _ => {}
+            },
+            Ok(Event::Eof) => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
+    paragraphs
+}
+
+fn attribute_value(element: &quick_xml::events::BytesStart<'_>, name: &[u8]) -> Option<String> {
+    element
+        .attributes()
+        .with_checks(false)
+        .filter_map(Result::ok)
+        .find(|attribute| attribute.key.local_name().as_ref() == name)
+        .map(|attribute| String::from_utf8_lossy(attribute.value.as_ref()).to_string())
+}
+
 fn invalid(message: impl Into<String>) -> ToolError {
     ToolError::new(ErrorCode::InvalidParams, message)
+}
+
+/// 供测试使用的 1x1 PNG。
+#[cfg(test)]
+pub(crate) fn tiny_png() -> Vec<u8> {
+    let image = image::RgbaImage::from_pixel(1, 1, image::Rgba([255, 0, 0, 255]));
+    let mut cursor = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(image)
+        .write_to(&mut cursor, image::ImageFormat::Png)
+        .expect("encode png");
+    cursor.into_inner()
 }
 
 #[cfg(test)]
@@ -372,7 +607,8 @@ mod tests {
                 width_cm: Some(10.0),
             },
         ];
-        let bytes = write_document(&path, &blocks).expect("write docx");
+        let bytes =
+            write_document(&path, &blocks, &DocumentOptions::default()).expect("write docx");
         assert!(bytes > 0);
         let file = File::open(&path).expect("open docx");
         let mut archive = zip::ZipArchive::new(file).expect("docx zip");
@@ -412,7 +648,7 @@ mod tests {
                 width_cm: None,
             },
         ];
-        write_document(&path, &blocks).expect("write docx");
+        write_document(&path, &blocks, &DocumentOptions::default()).expect("write docx");
         let content = read_document(&path).expect("read docx");
         assert!(content.paragraphs.iter().any(|line| line == "标题"));
         assert!(content
@@ -425,15 +661,29 @@ mod tests {
         assert!(!content.truncated);
         let _ = std::fs::remove_dir_all(directory);
     }
-}
 
-/// 供测试使用的 1x1 PNG。
-#[cfg(test)]
-pub(crate) fn tiny_png() -> Vec<u8> {
-    let image = image::RgbaImage::from_pixel(1, 1, image::Rgba([255, 0, 0, 255]));
-    let mut cursor = std::io::Cursor::new(Vec::new());
-    image::DynamicImage::ImageRgba8(image)
-        .write_to(&mut cursor, image::ImageFormat::Png)
-        .expect("encode png");
-    cursor.into_inner()
+    #[test]
+    fn writes_and_reads_header_footer_and_page_numbers() {
+        let directory = std::env::temp_dir().join(format!("docx-hf-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).expect("temp dir");
+        let path = directory.join("hf.docx");
+        let blocks = vec![Block::Paragraph("正文".to_string())];
+        let options = DocumentOptions {
+            header: Some("SAP 巡检报告".to_string()),
+            footer: Some("第".to_string()),
+            page_numbers: true,
+        };
+        write_document(&path, &blocks, &options).expect("write docx");
+        let file = File::open(&path).expect("open docx");
+        let mut archive = zip::ZipArchive::new(file).expect("docx zip");
+        let names: Vec<String> = (0..archive.len())
+            .map(|index| archive.by_index(index).expect("entry").name().to_string())
+            .collect();
+        assert!(names.contains(&"word/header1.xml".to_string()));
+        assert!(names.contains(&"word/footer1.xml".to_string()));
+        let content = read_document(&path).expect("read docx");
+        assert_eq!(content.headers, vec!["SAP 巡检报告".to_string()]);
+        assert!(content.footers.iter().any(|line| line.contains("{PAGE}")));
+        let _ = std::fs::remove_dir_all(directory);
+    }
 }

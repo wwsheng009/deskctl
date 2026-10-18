@@ -65,6 +65,11 @@ pub fn read_presentation(path: &Path) -> Result<Value, ToolError> {
                     b"blip" => images += 1,
                     _ => {}
                 },
+                Ok(Event::Empty(start)) => {
+                    if start.local_name().as_ref() == b"blip" {
+                        images += 1;
+                    }
+                }
                 Ok(Event::Text(text)) => {
                     if capturing {
                         buffer.push_str(&text.unescape().unwrap_or_default());
@@ -90,10 +95,83 @@ pub fn read_presentation(path: &Path) -> Result<Value, ToolError> {
     Ok(json!({ "slide_count": slide_count, "slides": slides }))
 }
 
-/// 单页规格：标题 + 要点（每行一个段落）。
+/// 单页图片（PNG 字节 + 像素尺寸）。
+#[derive(Debug, Clone)]
+pub struct SlideImage {
+    pub png: Vec<u8>,
+    pub width_px: u32,
+    pub height_px: u32,
+}
+
+/// 版式：`Auto` 按内容推断，其余为显式选择。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SlideLayout {
+    /// 有图无要点 → 标题+图片；有图有点 → 左文右图；仅要点 → 标题+要点；否则仅标题。
+    #[default]
+    Auto,
+    /// 标题 + 要点（不接受图片）。
+    TitleBullets,
+    /// 标题 + 整幅图片（不接受要点，需要图片）。
+    TitleImage,
+    /// 左侧要点 + 右侧图片（需要图片，要点可选）。
+    TextImage,
+    /// 仅标题（不接受图片与要点）。
+    TitleOnly,
+}
+
+/// 单页规格：标题 + 要点（每行一个段落）+ 可选图片。
+#[derive(Debug, Clone, Default)]
 pub struct SlideSpec {
     pub title: Option<String>,
     pub bullets: Vec<String>,
+    pub layout: SlideLayout,
+    pub image: Option<SlideImage>,
+}
+
+const EMU_PER_PX: f64 = 9525.0; // 96 dpi
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EffectiveLayout {
+    TitleBullets,
+    TitleImage,
+    TextImage,
+    TitleOnly,
+}
+
+/// 根据显式版式或内容推断实际版式；不匹配时返回 `invalid_params`。
+fn effective_layout(slide: &SlideSpec) -> Result<EffectiveLayout, ToolError> {
+    let has_image = slide.image.is_some();
+    let has_bullets = slide.bullets.iter().any(|bullet| !bullet.trim().is_empty());
+    match slide.layout {
+        SlideLayout::Auto => Ok(match (has_image, has_bullets) {
+            (false, true) => EffectiveLayout::TitleBullets,
+            (false, false) => EffectiveLayout::TitleOnly,
+            (true, true) => EffectiveLayout::TextImage,
+            (true, false) => EffectiveLayout::TitleImage,
+        }),
+        SlideLayout::TitleBullets if has_image => {
+            Err(invalid("layout 'title_bullets' does not accept an image"))
+        }
+        SlideLayout::TitleBullets => Ok(EffectiveLayout::TitleBullets),
+        SlideLayout::TitleImage if !has_image => {
+            Err(invalid("layout 'title_image' requires an image"))
+        }
+        SlideLayout::TitleImage if has_bullets => Err(invalid(
+            "layout 'title_image' ignores bullets; use 'text_image' instead",
+        )),
+        SlideLayout::TitleImage => Ok(EffectiveLayout::TitleImage),
+        SlideLayout::TextImage if !has_image => {
+            Err(invalid("layout 'text_image' requires an image"))
+        }
+        SlideLayout::TextImage => Ok(EffectiveLayout::TextImage),
+        SlideLayout::TitleOnly if has_image => {
+            Err(invalid("layout 'title_only' does not accept an image"))
+        }
+        SlideLayout::TitleOnly if has_bullets => {
+            Err(invalid("layout 'title_only' does not accept bullets"))
+        }
+        SlideLayout::TitleOnly => Ok(EffectiveLayout::TitleOnly),
+    }
 }
 
 /// 写出 `.pptx`，返回字节数。
@@ -103,6 +181,16 @@ pub fn write_presentation(path: &Path, slides: &[SlideSpec]) -> Result<u64, Tool
     }
     if slides.len() > MAX_SLIDES {
         return Err(invalid(format!("too many slides (>{MAX_SLIDES})")));
+    }
+    for slide in slides {
+        effective_layout(slide)?;
+        if let Some(image) = &slide.image {
+            if image.png.is_empty() || image.width_px == 0 || image.height_px == 0 {
+                return Err(invalid(
+                    "slide image must be non-empty with positive pixel dimensions",
+                ));
+            }
+        }
     }
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
@@ -148,17 +236,28 @@ pub fn write_presentation(path: &Path, slides: &[SlideSpec]) -> Result<u64, Tool
         SLIDE_LAYOUT_RELS.as_bytes(),
     )?;
     write_entry(&mut zip, "ppt/theme/theme1.xml", THEME.as_bytes())?;
+    let mut media: Vec<Vec<u8>> = Vec::new();
     for (index, slide) in slides.iter().enumerate() {
+        let layout = effective_layout(slide)?;
+        let has_image = if let Some(image) = &slide.image {
+            media.push(image.png.clone());
+            true
+        } else {
+            false
+        };
         write_entry(
             &mut zip,
             &format!("ppt/slides/slide{}.xml", index + 1),
-            slide_xml(slide).as_bytes(),
+            slide_xml(slide, layout, has_image).as_bytes(),
         )?;
         write_entry(
             &mut zip,
             &format!("ppt/slides/_rels/slide{}.xml.rels", index + 1),
-            SLIDE_RELS.as_bytes(),
+            slide_rels(has_image).as_bytes(),
         )?;
+    }
+    for (index, png) in media.iter().enumerate() {
+        write_entry(&mut zip, &format!("ppt/media/image{}.png", index + 1), png)?;
     }
     zip.finish()
         .map_err(|error| internal(format!("finalize presentation: {error}")))?;
@@ -169,7 +268,7 @@ pub fn write_presentation(path: &Path, slides: &[SlideSpec]) -> Result<u64, Tool
 fn content_types(slide_count: usize) -> String {
     let mut xml = String::from(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/><Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>"#,
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/><Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>"#,
     );
     for index in 1..=slide_count {
         xml.push_str(&format!(
@@ -231,12 +330,23 @@ const SLIDE_LAYOUT: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="y
 
 const SLIDE_LAYOUT_RELS: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="../slideMasters/slideMaster1.xml"/></Relationships>"#;
 
-const SLIDE_RELS: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/></Relationships>"#;
+fn slide_rels(has_image: bool) -> String {
+    let mut xml = String::from(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>"#,
+    );
+    if has_image {
+        xml.push_str(
+            r#"<Relationship Id="rIdImg1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.png"/>"#,
+        );
+    }
+    xml.push_str("</Relationships>");
+    xml
+}
 
 const THEME: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Deskctl"><a:themeElements><a:clrScheme name="Deskctl"><a:dk1><a:sysClr val="windowText" lastClr="000000"/></a:dk1><a:lt1><a:sysClr val="window" lastClr="FFFFFF"/></a:lt1><a:dk2><a:srgbClr val="44546A"/></a:dk2><a:lt2><a:srgbClr val="E7E6E6"/></a:lt2><a:accent1><a:srgbClr val="4472C4"/></a:accent1><a:accent2><a:srgbClr val="ED7D31"/></a:accent2><a:accent3><a:srgbClr val="A5A5A5"/></a:accent3><a:accent4><a:srgbClr val="FFC000"/></a:accent4><a:accent5><a:srgbClr val="5B9BD5"/></a:accent5><a:accent6><a:srgbClr val="70AD47"/></a:accent6><a:hlink><a:srgbClr val="0563C1"/></a:hlink><a:folHlink><a:srgbClr val="954F72"/></a:folHlink></a:clrScheme><a:fontScheme name="Deskctl"><a:majorFont><a:latin typeface="Calibri Light"/><a:ea typeface=""/><a:cs typeface=""/></a:majorFont><a:minorFont><a:latin typeface="Calibri"/><a:ea typeface=""/><a:cs typeface=""/></a:minorFont></a:fontScheme><a:fmtScheme name="Deskctl"><a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst><a:lnStyleLst><a:ln w="6350" cap="flat" cmpd="sng" algn="ctr"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:prstDash val="solid"/></a:ln><a:ln w="12700" cap="flat" cmpd="sng" algn="ctr"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:prstDash val="solid"/></a:ln><a:ln w="19050" cap="flat" cmpd="sng" algn="ctr"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:prstDash val="solid"/></a:ln></a:lnStyleLst><a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst><a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:bgFillStyleLst></a:fmtScheme></a:themeElements></a:theme>"#;
 
-fn slide_xml(slide: &SlideSpec) -> String {
+fn slide_xml(slide: &SlideSpec, layout: EffectiveLayout, has_image: bool) -> String {
     let mut xml = String::from(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>"#,
@@ -266,13 +376,57 @@ fn slide_xml(slide: &SlideSpec) -> String {
         .filter(|bullet| !bullet.trim().is_empty())
         .cloned()
         .collect();
-    if !bullets.is_empty() {
-        xml.push_str(&text_shape(
-            shape_id, "Body", 838200, 2000000, 10515600, 4000000, 1600, false, &bullets,
-        ));
+    match layout {
+        EffectiveLayout::TitleBullets => {
+            xml.push_str(&text_shape(
+                shape_id, "Body", 838200, 2000000, 10515600, 4000000, 1600, false, &bullets,
+            ));
+        }
+        EffectiveLayout::TextImage => {
+            if !bullets.is_empty() {
+                xml.push_str(&text_shape(
+                    shape_id, "Body", 838200, 2000000, 4500000, 4200000, 1600, false, &bullets,
+                ));
+                shape_id += 1;
+            }
+            if let Some(image) = slide.image.as_ref().filter(|_| has_image) {
+                xml.push_str(&image_shape(
+                    image, shape_id, 6176400, 2000000, 5177400, 4200000,
+                ));
+            }
+        }
+        EffectiveLayout::TitleImage => {
+            if let Some(image) = slide.image.as_ref().filter(|_| has_image) {
+                xml.push_str(&image_shape(
+                    image, shape_id, 838200, 2000000, 10515600, 4200000,
+                ));
+            }
+        }
+        EffectiveLayout::TitleOnly => {}
     }
     xml.push_str("</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>");
     xml
+}
+
+/// 生成图片形状：按原始宽高比等比缩放并居中到给定框内。
+fn image_shape(
+    image: &SlideImage,
+    shape_id: u32,
+    x: i64,
+    y: i64,
+    box_cx: i64,
+    box_cy: i64,
+) -> String {
+    let natural_width = f64::from(image.width_px) * EMU_PER_PX;
+    let natural_height = f64::from(image.height_px) * EMU_PER_PX;
+    let scale = (box_cx as f64 / natural_width).min(box_cy as f64 / natural_height);
+    let cx = (natural_width * scale) as i64;
+    let cy = (natural_height * scale) as i64;
+    let off_x = x + (box_cx - cx) / 2;
+    let off_y = y + (box_cy - cy) / 2;
+    format!(
+        r#"<p:pic><p:nvPicPr><p:cNvPr id="{shape_id}" name="image{shape_id}.png"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="rIdImg1"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr><a:xfrm><a:off x="{off_x}" y="{off_y}"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>"#
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -346,10 +500,12 @@ mod tests {
             SlideSpec {
                 title: Some("SAP ST06 报表".to_string()),
                 bullets: vec!["CPU 已消耗 1.0%".to_string(), "内存可用 6.5%".to_string()],
+                ..Default::default()
             },
             SlideSpec {
                 title: Some("第二页".to_string()),
                 bullets: vec![],
+                ..Default::default()
             },
         ];
         let bytes = write_presentation(&path, &slides).expect("write pptx");
@@ -363,6 +519,56 @@ mod tests {
             .iter()
             .any(|text| text == "内存可用 6.5%"));
         assert_eq!(read["slides"][1]["texts"][0], "第二页");
+        let _ = std::fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn writes_image_slides_and_validates_layouts() {
+        let directory = std::env::temp_dir().join(format!("pptx-img-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).expect("temp dir");
+        let path = directory.join("img.pptx");
+        let image = SlideImage {
+            png: crate::docx::tiny_png(),
+            width_px: 320,
+            height_px: 200,
+        };
+        let slides = vec![
+            SlideSpec {
+                title: Some("截图页".to_string()),
+                bullets: vec!["左列说明".to_string()],
+                layout: SlideLayout::Auto,
+                image: Some(image.clone()),
+            },
+            SlideSpec {
+                title: Some("整幅截图".to_string()),
+                bullets: vec![],
+                layout: SlideLayout::TitleImage,
+                image: Some(image),
+            },
+        ];
+        write_presentation(&path, &slides).expect("write pptx");
+        let read = read_presentation(&path).expect("read pptx");
+        assert_eq!(read["slides"][0]["images"], 1);
+        assert_eq!(read["slides"][1]["images"], 1);
+        assert!(read["slides"][0]["texts"]
+            .as_array()
+            .expect("texts")
+            .iter()
+            .any(|text| text == "左列说明"));
+        let file = File::open(&path).expect("open pptx");
+        let mut archive = zip::ZipArchive::new(file).expect("zip");
+        let names: Vec<String> = (0..archive.len())
+            .map(|index| archive.by_index(index).expect("entry").name().to_string())
+            .collect();
+        assert!(names.contains(&"ppt/media/image1.png".to_string()));
+        assert!(names.contains(&"ppt/media/image2.png".to_string()));
+        let bad = vec![SlideSpec {
+            title: None,
+            bullets: vec!["无图".to_string()],
+            layout: SlideLayout::TextImage,
+            image: None,
+        }];
+        assert!(write_presentation(&directory.join("bad.pptx"), &bad).is_err());
         let _ = std::fs::remove_dir_all(directory);
     }
 }

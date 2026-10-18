@@ -286,6 +286,21 @@ targets_list("visual studio code") -> target_bind（受限启动）-> Ctrl+N 新
 target token）返回 `redirected_from` 且 window.title 为对话框；`target_bind follow_dialog=true`
 返回 `followed_dialog=true` 与 `parent_hwnd`。
 
+### E2E-010 后台采集 → 三格式通用报告（含排版参数）
+
+```text
+window_screenshot（SAP 窗口，后台）-> docx_save（header/footer/page_numbers + 表格 + capture_id 图片）
+-> xlsx_save（header_row + freeze_header + columns[width/number_format]，多工作表）
+-> pptx_save（text_image/title_image，图片分别来自 capture_id 与 image_path）
+-> docx_read / xlsx_read(range=A2:B3) / pptx_read 读回校验
+```
+
+通过标准：docx 读回 `headers`/`footers` 含设置值（页码字段为 `{PAGE}` 占位）；xlsx 的
+styles.xml 含加粗字型与自定义 numFmt（≥164）、sheet XML 含 `customWidth` 与冻结窗格、
+`range` 只返回区域内单元格且保持类型；pptx 每页 `images` 计数与内嵌图片数一致；生成物包
+结构可被 zip 直读校验并被 deskctl 读回（人工打开以 `artifacts/` 产物为准）；全程不抢前台
+（执行前后前台进程一致）。
+
 ## 9. 并发与压力测试
 
 - 2/4/8 个 session 同时截图

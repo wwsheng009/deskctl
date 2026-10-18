@@ -1,6 +1,6 @@
 {
   "name": "desktop_docx_save",
-  "description": "Build a .docx report from captured images, text sections and tables; pure local file work, background friendly.",
+  "description": "Build a .docx report from captured images, text sections and tables, with optional header, footer and page numbers; pure local file work, background friendly.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -9,6 +9,15 @@
       },
       "title": {
         "type": "string"
+      },
+      "header": {
+        "type": "string"
+      },
+      "footer": {
+        "type": "string"
+      },
+      "page_numbers": {
+        "type": "boolean"
       },
       "sections": {
         "type": "array",

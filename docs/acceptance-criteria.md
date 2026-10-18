@@ -166,9 +166,12 @@
 | AC-IMG-002 | 裁剪链 | `capture_id` 来源的裁剪结果登记为新 capture（`capture_id` 非空），元素坐标映射按区域平移保持，可继续用于点击/OCR/二次裁剪 |
 | AC-DOC-001 | Word 文档 | `desktop_docx_save` 生成可被 Word/WPS/LibreOffice 打开的 `.docx`（标题、小节、正文、表格、内嵌图片与图注）；缺省输出到 data 目录 |
 | AC-DOC-002 | 后台执行 | 截图 → 裁剪 → 文档（docx/xlsx/pptx）汇总全流程不要求前台、不抢焦点（执行前后前台窗口保持不变） |
-| AC-DOC-003 | docx 读取 | `desktop_docx_read` 返回段落、表格与内嵌图片数量；非 docx 包返回结构化错误 |
-| AC-DOC-004 | xlsx 读写 | `desktop_xlsx_save` 写出可被 Excel/WPS 打开的工作簿；`desktop_xlsx_read` 读回工作表与类型化单元格值（行/列有上限并返回 `truncated`） |
-| AC-DOC-005 | pptx 读写 | `desktop_pptx_save` 生成可打开的标题+要点幻灯片；`desktop_pptx_read` 返回每页文本与图片数量 |
+| AC-DOC-003 | docx 读取 | `desktop_docx_read` 返回段落、表格、内嵌图片数量与页眉/页脚文本（页码字段回读为 `{PAGE}` 占位）；非 docx 包返回结构化错误 |
+| AC-DOC-004 | xlsx 读写 | `desktop_xlsx_save` 写出可被 Excel/WPS 打开的工作簿（可选表头加粗、列宽、数字格式、冻结首行、多工作表）；`desktop_xlsx_read` 读回工作表与类型化单元格值，可用 `range`（如 `B2:D10`）限定区域（行/列有上限并返回 `truncated`） |
+| AC-DOC-005 | pptx 读写 | `desktop_pptx_save` 生成可打开的标题/要点/图片幻灯片，`layout` 可选 auto/title_bullets/title_image/text_image/title_only（版式与内容冲突返回 `invalid_params`）；`desktop_pptx_read` 返回每页文本与图片数量 |
+| AC-DOC-006 | docx 排版 | `desktop_docx_save` 的 `header`/`footer`/`page_numbers` 生成 `word/header1.xml`/`word/footer1.xml` 与 sectPr 引用；`desktop_docx_read` 可读回页眉/页脚文本 |
+| AC-DOC-007 | xlsx 样式 | `header_row`（首行加粗字型）、`freeze_header`（冻结首行窗格）、`columns[].width`（`<col customWidth>`）与 `columns[].number_format`（自定义 numFmt + `applyNumberFormat`）写入 styles/worksheet XML |
+| AC-DOC-008 | pptx 图片 | `desktop_pptx_save` 每页可内嵌来自 `capture_id` 或允许根内 `image_path` 的 PNG（等比居中）；`desktop_pptx_read` 读回该页 `images` 计数 |
 
 ## 4. 多会话与状态验收
 

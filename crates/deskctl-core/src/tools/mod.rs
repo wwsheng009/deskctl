@@ -96,7 +96,7 @@ pub async fn execute(
         ToolName::XlsxRead => xlsx_read(engine, args),
         ToolName::XlsxSave => xlsx_save(args),
         ToolName::PptxRead => pptx_read(engine, args),
-        ToolName::PptxSave => pptx_save(args),
+        ToolName::PptxSave => pptx_save(engine, session, args),
         ToolName::Mouse => mouse(session, args),
         ToolName::MouseDrag => mouse_drag(session, args),
         ToolName::Input => input(session, args),
@@ -1098,6 +1098,20 @@ fn docx_save(engine: &Engine, session: &Session, args: &Value) -> Result<ToolExe
         env!("CARGO_PKG_VERSION"),
         chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
     )));
+    let options = crate::docx::DocumentOptions {
+        header: args
+            .get("header")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        footer: args
+            .get("footer")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        page_numbers: args
+            .get("page_numbers")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    };
     let path = match args.get("path").and_then(Value::as_str) {
         Some(path) if !path.trim().is_empty() => std::path::PathBuf::from(path),
         _ => engine.config().output_dir.join(format!(
@@ -1105,13 +1119,16 @@ fn docx_save(engine: &Engine, session: &Session, args: &Value) -> Result<ToolExe
             chrono::Local::now().format("%Y%m%d-%H%M%S")
         )),
     };
-    let bytes = crate::docx::write_document(&path, &blocks)?;
+    let bytes = crate::docx::write_document(&path, &blocks, &options)?;
     Ok(ToolExecution::read(json!({
         "path": path.display().to_string(),
         "bytes": bytes,
         "sections": sections.len(),
         "images": image_count,
-        "title": args.get("title").and_then(Value::as_str)
+        "title": args.get("title").and_then(Value::as_str),
+        "header": options.header,
+        "footer": options.footer,
+        "page_numbers": options.page_numbers
     })))
 }
 
@@ -1125,6 +1142,8 @@ fn docx_read(engine: &Engine, args: &Value) -> Result<ToolExecution, ToolError> 
         "paragraphs": content.paragraphs,
         "tables": content.tables,
         "images": content.images,
+        "headers": content.headers,
+        "footers": content.footers,
         "truncated": content.truncated
     })))
 }
@@ -1133,7 +1152,14 @@ fn docx_read(engine: &Engine, args: &Value) -> Result<ToolExecution, ToolError> 
 fn xlsx_read(engine: &Engine, args: &Value) -> Result<ToolExecution, ToolError> {
     let raw = required_str(args, "path")?;
     let path = normalize_image_path(engine, raw)?;
-    let sheets = crate::xlsx::read_workbook(&path)?;
+    let range = args
+        .get("range")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(crate::xlsx::parse_range)
+        .transpose()?;
+    let sheets = crate::xlsx::read_workbook(&path, range)?;
     let filtered = if let Some(name) = args.get("sheet").and_then(Value::as_str) {
         let list: Vec<Value> = sheets
             .as_array()
@@ -1151,6 +1177,7 @@ fn xlsx_read(engine: &Engine, args: &Value) -> Result<ToolExecution, ToolError> 
     };
     Ok(ToolExecution::read(json!({
         "path": path.display().to_string(),
+        "range": args.get("range").and_then(Value::as_str),
         "sheets": filtered
     })))
 }
@@ -1181,7 +1208,34 @@ fn xlsx_save(args: &Value) -> Result<ToolExecution, ToolError> {
                 .ok_or_else(|| invalid("sheet rows must be arrays"))?;
             rows.push(cells.clone());
         }
-        sheets.push(crate::xlsx::SheetSpec { name, rows });
+        let mut columns = Vec::new();
+        if let Some(list) = sheet.get("columns").and_then(Value::as_array) {
+            for column in list {
+                if !column.is_object() {
+                    return Err(invalid("sheet columns must be objects"));
+                }
+                columns.push(crate::xlsx::ColumnOptions {
+                    width: column.get("width").and_then(Value::as_f64),
+                    number_format: column
+                        .get("number_format")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                });
+            }
+        }
+        sheets.push(crate::xlsx::SheetSpec {
+            name,
+            rows,
+            header_row: sheet
+                .get("header_row")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            freeze_header: sheet
+                .get("freeze_header")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            columns,
+        });
     }
     let path = std::path::PathBuf::from(raw);
     let sheet_count = sheets.len();
@@ -1205,7 +1259,7 @@ fn pptx_read(engine: &Engine, args: &Value) -> Result<ToolExecution, ToolError> 
 }
 
 /// 写出 `.pptx`（每页标题 + 要点）。
-fn pptx_save(args: &Value) -> Result<ToolExecution, ToolError> {
+fn pptx_save(engine: &Engine, session: &Session, args: &Value) -> Result<ToolExecution, ToolError> {
     let raw = required_str(args, "path")?;
     let slides_value = args
         .get("slides")
@@ -1213,6 +1267,7 @@ fn pptx_save(args: &Value) -> Result<ToolExecution, ToolError> {
         .filter(|slides| !slides.is_empty())
         .ok_or_else(|| invalid("slides must be a non-empty array"))?;
     let mut slides = Vec::new();
+    let mut image_count = 0u32;
     for slide in slides_value {
         let title = slide
             .get("title")
@@ -1229,7 +1284,36 @@ fn pptx_save(args: &Value) -> Result<ToolExecution, ToolError> {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        slides.push(crate::pptx::SlideSpec { title, bullets });
+        let layout = match slide.get("layout").and_then(Value::as_str) {
+            None | Some("auto") => crate::pptx::SlideLayout::Auto,
+            Some("title_bullets") => crate::pptx::SlideLayout::TitleBullets,
+            Some("title_image") => crate::pptx::SlideLayout::TitleImage,
+            Some("text_image") => crate::pptx::SlideLayout::TextImage,
+            Some("title_only") => crate::pptx::SlideLayout::TitleOnly,
+            Some(other) => {
+                return Err(invalid(format!(
+                    "unknown slide layout '{other}' (auto|title_bullets|title_image|text_image|title_only)"
+                )))
+            }
+        };
+        let image = match slide.get("image").filter(|value| value.is_object()) {
+            Some(image) => {
+                let (png, width_px, height_px) = load_document_image(engine, session, image)?;
+                image_count += 1;
+                Some(crate::pptx::SlideImage {
+                    png,
+                    width_px,
+                    height_px,
+                })
+            }
+            None => None,
+        };
+        slides.push(crate::pptx::SlideSpec {
+            title,
+            bullets,
+            layout,
+            image,
+        });
     }
     let path = std::path::PathBuf::from(raw);
     let slide_count = slides.len();
@@ -1237,7 +1321,8 @@ fn pptx_save(args: &Value) -> Result<ToolExecution, ToolError> {
     Ok(ToolExecution::read(json!({
         "path": path.display().to_string(),
         "bytes": bytes,
-        "slides": slide_count
+        "slides": slide_count,
+        "images": image_count
     })))
 }
 

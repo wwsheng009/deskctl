@@ -1,6 +1,6 @@
 {
   "name": "desktop_pptx_save",
-  "description": "Write a minimal .pptx deck with title and bullet slides.",
+  "description": "Write a .pptx deck with title/bullet/image slides and selectable layouts (auto, title_bullets, title_image, text_image, title_only); images may come from a capture_id or an allowed image path.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -22,6 +22,29 @@
               "items": {
                 "type": "string"
               }
+            },
+            "layout": {
+              "type": "string",
+              "enum": [
+                "auto",
+                "title_bullets",
+                "title_image",
+                "text_image",
+                "title_only"
+              ]
+            },
+            "image": {
+              "type": "object",
+              "properties": {
+                "capture_id": {
+                  "type": "string"
+                },
+                "image_path": {
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "additionalProperties": false
             }
           },
           "required": [],

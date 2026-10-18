@@ -239,7 +239,7 @@ impl ToolName {
             ),
             Self::DocxRead => meta(
                 "desktop_docx_read",
-                "Read paragraphs, tables and image count from a .docx document.",
+                "Read paragraphs, tables, image count and header/footer text from a .docx document.",
                 RiskClass::ReadOnly,
                 true,
                 false,
@@ -247,7 +247,7 @@ impl ToolName {
             ),
             Self::DocxSave => meta(
                 "desktop_docx_save",
-                "Build a .docx report from captured images, text sections and tables; pure local file work, background friendly.",
+                "Build a .docx report from captured images, text sections and tables, with optional header, footer and page numbers; pure local file work, background friendly.",
                 RiskClass::ReadOnly,
                 true,
                 false,
@@ -255,7 +255,7 @@ impl ToolName {
             ),
             Self::XlsxRead => meta(
                 "desktop_xlsx_read",
-                "Read worksheets and cell values from .xlsx/.xls/.ods workbooks (bounded rows/cols).",
+                "Read worksheets and cell values from .xlsx/.xls/.ods workbooks, optionally limited to a cell range like A1:C10 (bounded rows/cols).",
                 RiskClass::ReadOnly,
                 true,
                 false,
@@ -263,7 +263,7 @@ impl ToolName {
             ),
             Self::XlsxSave => meta(
                 "desktop_xlsx_save",
-                "Write a .xlsx workbook from sheets of typed cell values.",
+                "Write a .xlsx workbook from sheets of typed cell values, with bold header row, column widths, number formats and frozen header.",
                 RiskClass::ReadOnly,
                 true,
                 false,
@@ -279,7 +279,7 @@ impl ToolName {
             ),
             Self::PptxSave => meta(
                 "desktop_pptx_save",
-                "Write a minimal .pptx deck with title and bullet slides.",
+                "Write a .pptx deck with title/bullet/image slides and selectable layouts (auto, title_bullets, title_image, text_image, title_only); images may come from a capture_id or an allowed image path.",
                 RiskClass::ReadOnly,
                 true,
                 false,

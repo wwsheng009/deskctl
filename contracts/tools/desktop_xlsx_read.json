@@ -1,6 +1,6 @@
 {
   "name": "desktop_xlsx_read",
-  "description": "Read worksheets and cell values from .xlsx/.xls/.ods workbooks (bounded rows/cols).",
+  "description": "Read worksheets and cell values from .xlsx/.xls/.ods workbooks, optionally limited to a cell range like A1:C10 (bounded rows/cols).",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -10,6 +10,11 @@
       },
       "sheet": {
         "type": "string"
+      },
+      "range": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 32
       }
     },
     "required": [

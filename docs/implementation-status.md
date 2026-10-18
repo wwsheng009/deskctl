@@ -10,7 +10,7 @@
 |---|---|---|
 | M0 文档冻结 | 完成 | 架构、验收、测试、MCP、skills 文档齐备 |
 | M1 Workspace 与协议骨架 | 完成 | 3 个 crate，统一结果封套，CLI/doctor/schema |
-| M2 Windows 无状态工具 | 完成 | 截图、窗口、鼠标、键盘、剪贴板、找图/找色/找字、等待、图像裁剪、Word/Excel/PPT 读写 |
+| M2 Windows 无状态工具 | 完成 | 截图、窗口、鼠标、键盘、剪贴板、找图/找色/找字、等待、图像裁剪、Word/Excel/PPT 读写（页眉页脚/样式/图片版式） |
 | M3 Daemon 与多 session | 完成 | Named Pipe daemon、session 管理、资源门 |
 | M4 MCP 服务 | 完成 | initialize / tools/list / tools/call / prompts |
 | M5 视觉与模型 | 完成 | PaddleOCR 与 YOLO 均已接入并真机验证 |
@@ -78,6 +78,12 @@
 - 办公文档读写（AC-DOC-003/004/005）：后台生成并读回——docx（38,499 bytes：6 段落/1 表格/
   1 图片）、xlsx（2,164 bytes：ST06 表 5 行类型化值）、pptx（5,677 bytes：2 页标题+要点）；
   输入路径策略实测（允许根之外 `policy_denied`，改存 `artifacts/` 后读回通过）
+- 办公文档通用化（AC-DOC-006/007/008）：后台截 SAP 窗口 → docx 页眉/页脚/页码（读回
+  `headers=[SAP 巡检报告]`、`footers=[第 {PAGE}]`，5 段落/1 表格/1 图片）、xlsx 表头加粗+
+  冻结首行+列宽+数字格式（styles.xml 含 `<b/>`、`numFmtId="164"`/`"165"` 与
+  `applyNumberFormat`，sheet1 含 `customWidth`/`state="frozen"`/`A1 s="1"`；2 工作表）、
+  pptx 三页含 2 张内嵌 PNG（`images=[1,1,0]`，来源分别为 `capture_id` 与 `image_path`）；
+  `desktop_xlsx_read` 的 `range=A2:B3` 精确返回 2 行类型化值；前台窗口全程未变（零抢焦点）
 
 ## 3. 测试状态
 
@@ -85,9 +91,9 @@
 
 ```text
 deskctl-cli:      13 passed（cli_contract 3、mcp_smoke 3、skills_contract 1、tool_contract 6）
-deskctl-core:     30 passed（lib 24、path_policy 2、session_isolation 4）
+deskctl-core:     33 passed（lib 27、path_policy 2、session_isolation 4）
 deskctl-protocol:  3 passed
-合计:             46 passed, 0 failed
+合计:             49 passed, 0 failed
 ```
 
 `cargo fmt --all -- --check` 与 `cargo clippy --workspace --all-targets -- -D warnings` 均无告警
@@ -111,7 +117,8 @@ deskctl-protocol:  3 passed
 - 扩展动作/树游标/delivery 解析（tools::semantic 单测）
 - 应用 catalog：仅收 .lnk、`app_ref` 稳定且不可伪造、未知 ref 拒绝、扫描上限（apps 单测）
 - docx 包结构（[Content_Types]/rels/document/media）与 XML 转义（docx 单测）
-- 办公三件套往返：docx 段落/表格/图片、xlsx 值类型、pptx 标题/要点（docx/xlsx/pptx 单测）
+- 办公三件套往返：docx 段落/表格/图片与页眉/页脚/页码（`{PAGE}` 回读）、xlsx 值类型/样式/
+  列宽/冻结/数字格式与 `range` 过滤、pptx 标题/要点/图片页与版式校验（docx/xlsx/pptx 单测）
 
 ## 4. 运行时资源
 
@@ -191,6 +198,8 @@ pwsh scripts/fetch-models.ps1
   汇总（含内嵌图）→ 包结构校验；前台全程未被抢占）
 - AC-DOC-003/004/005（真机 smoke：docx/xlsx/pptx 生成并读回、含表格与类型化值；
   输入路径策略与后台执行验证）
+- AC-DOC-006/007/008（真机 smoke：docx 页眉/页脚/页码读回、xlsx 样式/冻结/列宽/数字格式与
+  `range` 读取、pptx 内嵌 PNG 与版式校验；前台窗口全程未变）
 - AC-PER-003（OCR/YOLO 合并去重 smoke）
 - AC-SESS-001/002/004/005/006
 - AC-SESS-003/009（安全脚本实测：8 并发输入串行、0 失败、p50=708ms/max=1129ms 无饥饿）

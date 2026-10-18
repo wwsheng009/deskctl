@@ -327,6 +327,9 @@ pub fn input_schema(name: ToolName) -> Value {
             json!({
                 "path": { "type": "string" },
                 "title": { "type": "string" },
+                "header": { "type": "string" },
+                "footer": { "type": "string" },
+                "page_numbers": { "type": "boolean" },
                 "sections": {
                     "type": "array",
                     "minItems": 1,
@@ -359,7 +362,8 @@ pub fn input_schema(name: ToolName) -> Value {
         ToolName::XlsxRead => object(
             json!({
                 "path": { "type": "string", "minLength": 1 },
-                "sheet": { "type": "string" }
+                "sheet": { "type": "string" },
+                "range": { "type": "string", "minLength": 1, "maxLength": 32 }
             }),
             &["path"],
         ),
@@ -372,6 +376,18 @@ pub fn input_schema(name: ToolName) -> Value {
                     "items": object(
                         json!({
                             "name": { "type": "string" },
+                            "header_row": { "type": "boolean" },
+                            "freeze_header": { "type": "boolean" },
+                            "columns": {
+                                "type": "array",
+                                "items": object(
+                                    json!({
+                                        "width": { "type": "number", "minimum": 1, "maximum": 255 },
+                                        "number_format": { "type": "string", "maxLength": 128 }
+                                    }),
+                                    &[],
+                                )
+                            },
                             "rows": { "type": "array", "items": { "type": "array" } }
                         }),
                         &["rows"],
@@ -393,7 +409,15 @@ pub fn input_schema(name: ToolName) -> Value {
                     "items": object(
                         json!({
                             "title": { "type": "string" },
-                            "bullets": { "type": "array", "items": { "type": "string" } }
+                            "bullets": { "type": "array", "items": { "type": "string" } },
+                            "layout": { "type": "string", "enum": ["auto","title_bullets","title_image","text_image","title_only"] },
+                            "image": object(
+                                json!({
+                                    "capture_id": { "type": "string" },
+                                    "image_path": { "type": "string" }
+                                }),
+                                &[],
+                            )
                         }),
                         &[],
                     )

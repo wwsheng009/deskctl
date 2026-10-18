@@ -1,6 +1,6 @@
 {
   "name": "desktop_docx_read",
-  "description": "Read paragraphs, tables and image count from a .docx document.",
+  "description": "Read paragraphs, tables, image count and header/footer text from a .docx document.",
   "inputSchema": {
     "type": "object",
     "properties": {
