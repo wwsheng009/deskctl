@@ -16,7 +16,7 @@
 | M5 视觉与模型 | 完成 | PaddleOCR 与 YOLO 均已接入并真机验证 |
 | M6 Windows UIA 语义工具 | 部分完成 | 观察/候选/执行/验证可用；agent_step 未实现 |
 | M7 Skills 与 profiles | 完成 | 5 个 skills、profile 过滤、契约导出 |
-| M8 打包与发布 | 部分完成 | 运行时/模型获取、哈希校验、安装脚本与 Inno Setup 模板完成；性能基线与安全/会话矩阵已实测（`scripts/perf-baseline.ps1`、`scripts/security-check.ps1`）；干净机安装、代码签名与 Windows 10 回归待发布流水线 |
+| M8 打包与发布 | 部分完成 | 运行时/模型获取、哈希校验、安装脚本与 Inno Setup 模板完成；性能基线与安全/会话矩阵（12/12，含输入串行与公平性）已实测（`scripts/perf-baseline.ps1`、`scripts/security-check.ps1`）；干净机安装、代码签名与 Windows 10 回归待发布流水线 |
 
 ## 2. 已验证能力
 
@@ -39,7 +39,12 @@
 - 多 session 并发截图与状态隔离
 - 8 并发 session 截图（pipe 实例池 + 客户端 231 重试，0 失败、每轮 8 个唯一 capture_id）
 - `scripts/perf-baseline.ps1`：AC-PERF-001..009 本机 release 实测（见 [performance-baseline.md](performance-baseline.md)）
-- `scripts/security-check.ps1`：AC-SEC-002/006/009/010、AC-SESS-005/007 全部通过（6/6）
+- `scripts/security-check.ps1`：AC-SEC-001/002/003/004/005/006/009/010、AC-SESS-003/005/007/009 全部通过（12/12）
+- `deskctl call` / `session inspect|close` 强制 session token：缺失返回 `auth_required`，CLI 退出码 7；错误 token 同样拒绝
+- daemon 级错误按 `code: message` 前缀映射退出码（invalid_params/unknown_tool=2、stale/server_restarted=4、resource_busy=5、platform_not_supported=6、policy/permission/auth=7），见 AC-CLI-007
+- `desktop_screenshot --json '{"path":"x.jpg","format":"png"}'` 显式 format 覆盖扩展名，写出 `x.png`；省略 format 时保持 `.jpg` → jpeg
+- `desktop_semantic_execute` → `desktop_verify_state value_equals` 真机闭环：目标处于非前台时激活成功后写入并 `satisfied=true`
+- `desktop_window_activate` 在后台 daemon 中可置前目标窗口（attach 前台/目标输入队列 + `SetActiveWindow` + `SwitchToThisWindow` 兜底）
 
 ## 3. 测试状态
 
@@ -51,6 +56,9 @@ deskctl-core:     17 passed（lib 11、path_policy 2、session_isolation 4）
 deskctl-protocol:  3 passed
 合计:             33 passed, 0 failed
 ```
+
+`cargo fmt --all -- --check` 与 `cargo clippy --workspace --all-targets -- -D warnings` 均无告警
+（clippy 增量缓存偶尔导致 clippy-driver 崩溃时，可加 `CARGO_INCREMENTAL=0` 重跑）。
 
 覆盖：
 
@@ -117,7 +125,7 @@ pwsh scripts/fetch-models.ps1
 - Windows 10 未做真机回归
 - 性能基线为单机、单屏幕内容的一次测量；固定参考机器与跨版本回退对比未建立
 - 取消已覆盖等待类工具；其他长任务的协作式取消仍需逐一补齐
-- session 空闲回收只在新会话创建时触发
+- session 空闲回收：daemon 每 30 秒扫描一次，另在新会话创建时触发
 
 ### 低优先级
 
@@ -138,22 +146,22 @@ pwsh scripts/fetch-models.ps1
 - AC-SEM-006（真机 smoke：保存 locator 后 `desktop_semantic_action` 重放）
 - AC-PER-003（OCR/YOLO 合并去重 smoke）
 - AC-SESS-001/002/004/005/006
+- AC-SESS-003/009（安全脚本实测：8 并发输入串行、0 失败、p50=708ms/max=1129ms 无饥饿）
 - AC-SESS-007（安全脚本实测：会话上限 resource_busy）
+- AC-SESS-008（真机实测：`%TEMP%` 下的会话截图随关闭删除、capture cache 清空；默认 captures 目录为持久目录，保留）
 - AC-MCP-001/002/003/004/005/010/012
-- AC-CLI-001/002/003/005/008/010
+- AC-CLI-001/002/003/005/007/008/010（007：退出码 2/4/5/7 已真机实测；6 仅在非 Windows 平台出现）
 - AC-ERR-001/002/004/005/007/009
 - AC-PKG-002/003/007
 - AC-DOC
 - AC-PERF-001/002/003/004/005/007/008/009（本机 release 实测，见 [performance-baseline.md](performance-baseline.md)）
-- AC-SEC-002/006/009/010（安全脚本实测：token 校验、字库穿越、会话隔离、无脚本执行）
+- AC-SEC-001/002/003/004/005/006/009/010（安全脚本 12/12：本地监听、token 校验、无审批字段、风险元数据、自定义路径、字库穿越、会话隔离、无脚本执行）
 
 未满足或未验证：
 
 - AC-SEM-012（agent_step）
-- AC-SESS-003/009（输入串行与公平性无专门测试；8 并发烟测未观察到饥饿）
-- AC-SESS-008（关闭会话清理已实现并有单测，缺真机文件落盘回归）
 - AC-PERF-006（已有 warm 基线记录，跨版本回退对比未建立）
-- AC-SEC-001/004/005/007/008（监听面/风险元数据/读取限制/日志脱敏未逐条实测）
+- AC-SEC-007/008（读取限制/日志脱敏未逐条实测）
 - AC-PKG-001/004/005/006
 - AC-EXT-*
 - Windows 10 兼容性

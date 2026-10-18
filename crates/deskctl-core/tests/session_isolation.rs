@@ -62,8 +62,10 @@ fn closing_session_clears_tokens() {
 
 #[test]
 fn session_limit_returns_resource_busy() {
-    let mut config = deskctl_core::Config::default();
-    config.max_sessions = 1;
+    let config = deskctl_core::Config {
+        max_sessions: 1,
+        ..Default::default()
+    };
     let engine = Engine::new(config);
     engine
         .create_session(Some(ToolProfile::Standard), "a")

@@ -6,11 +6,13 @@ use windows::Win32::System::Threading::{
     AttachThreadInput, GetCurrentThreadId, OpenProcess, QueryFullProcessImageNameW,
     PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
+use windows::Win32::UI::Input::KeyboardAndMouse::SetActiveWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetClassNameW, GetForegroundWindow, GetWindowRect, GetWindowTextLengthW,
-    GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible,
-    SetForegroundWindow, SetWindowPos, ShowWindow, HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE,
-    SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SW_RESTORE,
+    BringWindowToTop, EnumWindows, GetClassNameW, GetForegroundWindow, GetWindowRect,
+    GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow,
+    IsWindowVisible, SetForegroundWindow, SetWindowPos, ShowWindow, SwitchToThisWindow,
+    HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+    SWP_SHOWWINDOW, SW_RESTORE, SW_SHOW,
 };
 
 pub fn windows_list() -> Result<Vec<Value>, ToolError> {
@@ -88,16 +90,46 @@ pub fn activate_window(hwnd: i64) -> Result<bool, ToolError> {
     unsafe {
         if IsIconic(hwnd).as_bool() {
             let _ = ShowWindow(hwnd, SW_RESTORE);
-            std::thread::sleep(std::time::Duration::from_millis(350));
+            std::thread::sleep(std::time::Duration::from_millis(250));
         }
-        let target_thread = GetWindowThreadProcessId(hwnd, None);
+
         let current_thread = GetCurrentThreadId();
-        let _ = AttachThreadInput(current_thread, target_thread, true);
+        let target_thread = GetWindowThreadProcessId(hwnd, None);
+        let foreground_thread = GetWindowThreadProcessId(GetForegroundWindow(), None);
+
+        // A background process is not allowed to change the foreground window
+        // unless it shares an input queue with the current foreground thread.
+        // Attaching to both the foreground and the target input queues is the
+        // documented workaround.
+        let mut attached: Vec<u32> = Vec::new();
+        for thread in [foreground_thread, target_thread] {
+            if thread != 0
+                && thread != current_thread
+                && !attached.contains(&thread)
+                && AttachThreadInput(current_thread, thread, true).as_bool()
+            {
+                attached.push(thread);
+            }
+        }
+
+        let _ = BringWindowToTop(hwnd);
+        let _ = ShowWindow(hwnd, SW_SHOW);
+        let _ = SetActiveWindow(hwnd);
         let _ = SetForegroundWindow(hwnd);
-        if GetForegroundWindow() != hwnd {
+        let mut active = GetForegroundWindow() == hwnd;
+        if !active {
             let _ = SetWindowPos(
                 hwnd,
-                HWND_TOP,
+                HWND_TOPMOST,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+            );
+            let _ = SetWindowPos(
+                hwnd,
+                HWND_NOTOPMOST,
                 0,
                 0,
                 0,
@@ -105,11 +137,23 @@ pub fn activate_window(hwnd: i64) -> Result<bool, ToolError> {
                 SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
             );
             let _ = SetForegroundWindow(hwnd);
+            std::thread::sleep(std::time::Duration::from_millis(80));
+            active = GetForegroundWindow() == hwnd;
         }
-        let _ = AttachThreadInput(current_thread, target_thread, false);
-        std::thread::sleep(std::time::Duration::from_millis(120));
+        if !active {
+            // Alt-tab equivalent: succeeds where SetForegroundWindow is
+            // rejected by the foreground lock.
+            SwitchToThisWindow(hwnd, true);
+            std::thread::sleep(std::time::Duration::from_millis(120));
+            active = GetForegroundWindow() == hwnd;
+        }
+
+        for thread in attached {
+            let _ = AttachThreadInput(current_thread, thread, false);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(60));
+        Ok(active || GetForegroundWindow() == hwnd)
     }
-    Ok(unsafe { GetForegroundWindow() } == hwnd)
 }
 
 pub fn move_window(hwnd: i64, x: i32, y: i32) -> Result<(), ToolError> {
