@@ -132,13 +132,13 @@ impl PaddleOcr {
 
         if !det_path.exists() {
             return Err(format!(
-                "检测模型未找到: {}\n重新构建时会自动下载（src-tauri/build.rs）",
+                "检测模型未找到: {}\n请运行 scripts/fetch-models.ps1",
                 det_path.display()
             ));
         }
         if !rec_path.exists() {
             return Err(format!(
-                "识别模型未找到: {}\n重新构建时会自动下载（src-tauri/build.rs）",
+                "识别模型未找到: {}\n请运行 scripts/fetch-models.ps1",
                 rec_path.display()
             ));
         }

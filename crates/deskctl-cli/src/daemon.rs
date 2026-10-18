@@ -33,6 +33,7 @@ struct DaemonState {
     engine: Arc<Engine>,
     token: String,
     shutdown: watch::Sender<bool>,
+    active: std::sync::Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>,
 }
 
 pub async fn run(socket: String, token_file: PathBuf, engine: Arc<Engine>) -> Result<(), String> {
@@ -42,6 +43,7 @@ pub async fn run(socket: String, token_file: PathBuf, engine: Arc<Engine>) -> Re
         engine: engine.clone(),
         token,
         shutdown: shutdown_tx,
+        active: std::sync::Mutex::new(std::collections::HashMap::new()),
     });
 
     eprintln!(
@@ -177,7 +179,8 @@ async fn handle_request(request: Request, state: Arc<DaemonState>) -> Response {
                 Ok(value) => value,
                 Err(error) => return failure(id, error),
             };
-            match state.engine.inspect_session(&session_id, None) {
+            let token = request.params.get("session_token").and_then(Value::as_str);
+            match state.engine.inspect_session(&session_id, token) {
                 Ok(value) => Ok(value),
                 Err(error) => return failure(id, error.to_string()),
             }
@@ -187,7 +190,8 @@ async fn handle_request(request: Request, state: Arc<DaemonState>) -> Response {
                 Ok(value) => value,
                 Err(error) => return failure(id, error),
             };
-            match state.engine.close_session(&session_id, None) {
+            let token = request.params.get("session_token").and_then(Value::as_str);
+            match state.engine.close_session(&session_id, token) {
                 Ok(value) => Ok(value),
                 Err(error) => return failure(id, error.to_string()),
             }
@@ -197,7 +201,8 @@ async fn handle_request(request: Request, state: Arc<DaemonState>) -> Response {
                 Ok(value) => value,
                 Err(error) => return failure(id, error),
             };
-            match state.engine.get_session(&session_id, None) {
+            let token = request.params.get("session_token").and_then(Value::as_str);
+            match state.engine.get_session(&session_id, token) {
                 Ok(session) => Ok(Value::Array(schema::tool_descriptors(session.profile))),
                 Err(error) => return failure(id, error.to_string()),
             }
@@ -220,21 +225,57 @@ async fn handle_request(request: Request, state: Arc<DaemonState>) -> Response {
                 .get("arguments")
                 .cloned()
                 .unwrap_or_else(|| serde_json::json!({}));
-            let session = match state.engine.get_session(&session_id, None) {
+            let session_token = request.params.get("session_token").and_then(Value::as_str);
+            let session = match state.engine.get_session(&session_id, session_token) {
                 Ok(session) => session,
                 Err(error) => return failure(id, error.to_string()),
             };
+            let request_id = request
+                .params
+                .get("request_id")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .or_else(|| request.id.clone());
+            let cancel = Arc::new(AtomicBool::new(false));
+            if let Some(request_id) = &request_id {
+                if let Ok(mut active) = state.active.lock() {
+                    active.insert(request_id.clone(), cancel.clone());
+                }
+            }
             let result: ToolResult = state
                 .engine
-                .execute_with_session(
-                    session,
-                    tool,
-                    arguments,
-                    request.id.clone(),
-                    Arc::new(AtomicBool::new(false)),
-                )
+                .execute_with_session(session, tool, arguments, request_id.clone(), cancel)
                 .await;
+            if let Some(request_id) = &request_id {
+                if let Ok(mut active) = state.active.lock() {
+                    active.remove(request_id);
+                }
+            }
             serde_json::to_value(result).map_err(|error| error.to_string())
+        }
+        "request/cancel" => {
+            let request_id = match required_string(&request.params, "request_id") {
+                Ok(value) => value,
+                Err(error) => return failure(id, error),
+            };
+            let cancel = state
+                .active
+                .lock()
+                .ok()
+                .and_then(|active| active.get(&request_id).cloned());
+            match cancel {
+                Some(cancel) => {
+                    cancel.store(true, std::sync::atomic::Ordering::Release);
+                    Ok(serde_json::json!({
+                        "request_id": request_id,
+                        "cancelled": true
+                    }))
+                }
+                None => Ok(serde_json::json!({
+                    "request_id": request_id,
+                    "cancelled": false
+                })),
+            }
         }
         "shutdown" => {
             state.engine.request_shutdown();

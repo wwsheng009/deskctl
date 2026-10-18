@@ -122,17 +122,29 @@ fn screenshot(
     args: &Value,
 ) -> Result<ToolExecution, ToolError> {
     let capture = platform::capture_screen(optional_region(args))?;
-    let path = platform::save_png(
+    let policy = crate::capture_policy::CapturePolicy::from_args(args, &engine.config().capture)?;
+    let encoded = platform::save_capture(
         &capture.image,
         args.get("path").and_then(Value::as_str),
         &engine.config().output_dir,
+        &policy,
     )?;
-    let capture_id = store_capture(session, &capture, path.clone())?;
+    let capture_id = store_capture(
+        session,
+        &capture,
+        encoded.path.to_string_lossy().into_owned(),
+    )?;
     Ok(ToolExecution::read(json!({
         "capture_id": capture_id,
-        "path": path,
-        "width": capture.image.width(),
-        "height": capture.image.height(),
+        "path": encoded.path.to_string_lossy(),
+        "format": encoded.format.as_str(),
+        "width": encoded.width,
+        "height": encoded.height,
+        "source_width": capture.image.width(),
+        "source_height": capture.image.height(),
+        "bytes": encoded.bytes,
+        "resized": encoded.resized,
+        "quality": encoded.quality,
         "screen_region": capture.screen_rect,
         "foreground_hwnd": capture.foreground_hwnd
     })))
@@ -221,18 +233,30 @@ fn window_screenshot(
         ));
     };
     let capture = platform::capture_window(hwnd)?;
-    let path = platform::save_png(
+    let policy = crate::capture_policy::CapturePolicy::from_args(args, &engine.config().capture)?;
+    let encoded = platform::save_capture(
         &capture.image,
         args.get("path").and_then(Value::as_str),
         &engine.config().output_dir,
+        &policy,
     )?;
-    let capture_id = store_capture(session, &capture, path.clone())?;
+    let capture_id = store_capture(
+        session,
+        &capture,
+        encoded.path.to_string_lossy().into_owned(),
+    )?;
     Ok(ToolExecution::read(json!({
         "capture_id": capture_id,
-        "path": path,
+        "path": encoded.path.to_string_lossy(),
+        "format": encoded.format.as_str(),
         "hwnd": hwnd,
-        "width": capture.image.width(),
-        "height": capture.image.height(),
+        "width": encoded.width,
+        "height": encoded.height,
+        "source_width": capture.image.width(),
+        "source_height": capture.image.height(),
+        "bytes": encoded.bytes,
+        "resized": encoded.resized,
+        "quality": encoded.quality,
         "screen_region": capture.screen_rect
     })))
 }

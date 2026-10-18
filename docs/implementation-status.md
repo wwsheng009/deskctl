@@ -16,7 +16,7 @@
 | M5 视觉与模型 | 完成 | PaddleOCR 与 YOLO 均已接入并真机验证 |
 | M6 Windows UIA 语义工具 | 部分完成 | 观察/候选/执行/验证可用；agent_step 未实现 |
 | M7 Skills 与 profiles | 完成 | 5 个 skills、profile 过滤、契约导出 |
-| M8 打包与发布 | 部分完成 | 运行时/模型获取脚本完成；安装包未做 |
+| M8 打包与发布 | 部分完成 | 运行时/模型获取、哈希校验、安装脚本与 Inno Setup 模板完成；干净机安装与签名待发布流水线 |
 
 ## 2. 已验证能力
 
@@ -43,10 +43,10 @@
 `cargo test --workspace` 通过：
 
 ```text
-deskctl-cli:      10 passed
-deskctl-core:      6 passed
+deskctl-cli:      11 passed
+deskctl-core:     11 passed
 deskctl-protocol:  3 passed
-合计:             19 passed, 0 failed
+合计:             25 passed, 0 failed
 ```
 
 覆盖：
@@ -103,14 +103,14 @@ pwsh scripts/fetch-models.ps1
 
 - `desktop_vision` 需要外部视觉 provider，当前返回 `model_unavailable`
 - `desktop_agent_step` 需要增强决策 provider，当前返回 `model_unavailable`
-- `desktop_find_image` 的模板匹配为简化实现
+- `desktop_find_image` 的模板匹配为简化实现，超大模板或强缩放场景精度有限
 
 ### 中优先级
 
-- 安装包（MSI/NSIS）未制作
+- 安装包脚本已提供；干净 Windows 机器安装与签名未执行
 - Windows 10 未做真机回归
 - 性能基线未测量
-- 取消请求尚未传播到所有长任务
+- 取消已覆盖等待类工具；其他长任务的协作式取消仍需逐一补齐
 - session 空闲回收只在新会话创建时触发
 
 ### 低优先级
@@ -129,19 +129,19 @@ pwsh scripts/fetch-models.ps1
 - AC-MOUSE-001/002/004/005
 - AC-CLIP
 - AC-SEM-001/002/003/004/005/007/008/009/010/011
-- AC-SESS-001/002/005
+- AC-SEM-006（真机 smoke：保存 locator 后 `desktop_semantic_action` 重放）
+- AC-PER-003（OCR/YOLO 合并去重 smoke）
+- AC-SESS-001/002/004/005/006
 - AC-MCP-001/002/003/004/005/010/012
 - AC-CLI-001/002/003/005/008/010
-- AC-ERR-001/002/004/005
+- AC-ERR-001/002/004/005/007/009
 - AC-PKG-002/003/007
 - AC-DOC
 
 未满足或未验证：
 
-- AC-PER-003（OCR/YOLO 合并去重）
-- AC-SEM-006（持久化动作端到端）
 - AC-SEM-012（agent_step）
-- AC-SESS-003/004/006/007/008/009
+- AC-SESS-003/007/008/009
 - AC-PERF-*
 - AC-SEC-*
 - AC-PKG-001/004/005/006
@@ -159,4 +159,5 @@ pwsh scripts/fetch-models.ps1
 - 支持 MCP
 - 支持 OCR 和 UIA
 
-但尚未达到 `acceptance-criteria.md` 的完整发布门禁。主要剩余工作是 YOLO、找字、安装包、性能/安全测试和 Windows 10 回归。
+但尚未达到 `acceptance-criteria.md` 的完整发布门禁。主要剩余工作是干净机安装、签名、
+性能/安全矩阵和 Windows 10 回归。

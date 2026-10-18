@@ -4,6 +4,8 @@ use std::time::Duration;
 
 use deskctl_protocol::ToolProfile;
 
+use crate::capture_policy::{CapturePolicy, OutputFormat};
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub models_dir: PathBuf,
@@ -14,6 +16,7 @@ pub struct Config {
     pub observation_ttl: Duration,
     pub session_idle: Duration,
     pub resource_wait: Duration,
+    pub capture: CapturePolicy,
 }
 
 impl Default for Config {
@@ -30,8 +33,38 @@ impl Default for Config {
             observation_ttl: Duration::from_secs(env_u64("DESKCTL_OBSERVATION_TTL_SECS", 120)),
             session_idle: Duration::from_secs(env_u64("DESKCTL_SESSION_IDLE_SECS", 30 * 60)),
             resource_wait: Duration::from_secs(env_u64("DESKCTL_RESOURCE_WAIT_SECS", 30)),
+            capture: capture_policy_from_env(),
         }
     }
+}
+
+fn capture_policy_from_env() -> CapturePolicy {
+    let mut policy = CapturePolicy::default();
+    if let Ok(format) = std::env::var("DESKCTL_CAPTURE_FORMAT") {
+        if let Ok(format) = OutputFormat::parse(&format) {
+            policy.format = format;
+        }
+    }
+    policy.quality =
+        env_u64("DESKCTL_CAPTURE_QUALITY", u64::from(policy.quality)).clamp(1, 100) as u8;
+    policy.png_compression = env_u64(
+        "DESKCTL_CAPTURE_PNG_COMPRESSION",
+        u64::from(policy.png_compression),
+    )
+    .min(9) as u8;
+    policy.max_width = std::env::var("DESKCTL_CAPTURE_MAX_WIDTH")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .filter(|value| *value > 0);
+    policy.max_height = std::env::var("DESKCTL_CAPTURE_MAX_HEIGHT")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .filter(|value| *value > 0);
+    policy.max_bytes = std::env::var("DESKCTL_CAPTURE_MAX_BYTES")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value > 0);
+    policy
 }
 
 impl Config {
@@ -124,7 +157,6 @@ pub fn models_dir() -> Option<PathBuf> {
             .ok()
             .and_then(|path| path.parent().map(|parent| parent.join("models"))),
         Some(PathBuf::from("models")),
-        Some(PathBuf::from("src-tauri/desktop/models")),
     ];
     candidates.into_iter().flatten().find(|path| path.is_dir())
 }

@@ -69,9 +69,7 @@ impl YoloDetector {
                 })?
                 .commit();
             let session = ort::session::Session::builder()
-                .map_err(|error| {
-                    ToolError::new(ErrorCode::ModelUnavailable, error.to_string())
-                })?
+                .map_err(|error| ToolError::new(ErrorCode::ModelUnavailable, error.to_string()))?
                 .commit_from_file(self.models_dir.join(YOLO_MODEL))
                 .map_err(|error| {
                     ToolError::new(
@@ -89,10 +87,12 @@ impl YoloDetector {
         })?;
         let outputs = session
             .run(ort::inputs![input_name.as_str() => tensor])
-            .map_err(|error| ToolError::new(ErrorCode::Internal, format!("YOLO inference: {error}")))?;
-        let output = outputs.get(output_name.as_str()).ok_or_else(|| {
-            ToolError::new(ErrorCode::Internal, "YOLO output tensor is missing")
-        })?;
+            .map_err(|error| {
+                ToolError::new(ErrorCode::Internal, format!("YOLO inference: {error}"))
+            })?;
+        let output = outputs
+            .get(output_name.as_str())
+            .ok_or_else(|| ToolError::new(ErrorCode::Internal, "YOLO output tensor is missing"))?;
         let view = output.try_extract_array::<f32>().map_err(|error| {
             ToolError::new(ErrorCode::Internal, format!("extract YOLO output: {error}"))
         })?;
@@ -186,8 +186,7 @@ fn iou(left: &ScreenRect, right: &ScreenRect) -> f32 {
     let intersection_width = (ax2.min(bx2) - ax1.max(bx1)).max(0.0);
     let intersection_height = (ay2.min(by2) - ay1.max(by1)).max(0.0);
     let intersection = intersection_width * intersection_height;
-    let union = left.width as f32 * left.height as f32
-        + right.width as f32 * right.height as f32
+    let union = left.width as f32 * left.height as f32 + right.width as f32 * right.height as f32
         - intersection;
     if union <= 0.0 {
         0.0

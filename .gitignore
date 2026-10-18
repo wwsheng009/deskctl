@@ -8,6 +8,7 @@
 /models/*.onnx
 /models/*.txt
 /models/hashes.json
+/models/*.dll
 
 # Native runtime assets (fetched by scripts/fetch-runtime.ps1)
 /third_party/onnxruntime/**/*.dll

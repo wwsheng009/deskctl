@@ -5,6 +5,7 @@ use image::RgbaImage;
 use uuid::Uuid;
 use xcap::{Monitor, Window};
 
+use crate::capture_policy::{encode_and_save, CapturePolicy, EncodedImage};
 use crate::session::ScreenRect;
 
 #[derive(Debug, Clone)]
@@ -119,21 +120,13 @@ pub fn foreground_hwnd() -> Result<Option<i64>, ToolError> {
     Ok((hwnd.0 != 0).then_some(hwnd.0 as i64))
 }
 
-pub fn save_png(
+pub fn save_capture(
     image: &RgbaImage,
     path: Option<&str>,
     default_dir: &Path,
-) -> Result<String, ToolError> {
-    let path = normalize_png_path(path, default_dir)?;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    image
-        .save_with_format(&path, image::ImageFormat::Png)
-        .map_err(|error| capture_error(format!("failed to write {}: {error}", path.display())))?;
-    std::fs::metadata(&path)
-        .map_err(|error| capture_error(format!("failed to verify screenshot output: {error}")))?;
-    Ok(path.to_string_lossy().into_owned())
+    policy: &CapturePolicy,
+) -> Result<EncodedImage, ToolError> {
+    encode_and_save(image, path, default_dir, policy)
 }
 
 pub fn normalize_png_path(path: Option<&str>, default_dir: &Path) -> Result<PathBuf, ToolError> {
@@ -155,7 +148,17 @@ pub fn normalize_png_path(path: Option<&str>, default_dir: &Path) -> Result<Path
     } else {
         std::env::current_dir()?.join(path)
     };
-    Ok(path.with_extension("png"))
+    Ok(match path.extension().and_then(|value| value.to_str()) {
+        Some(extension)
+            if matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "png" | "jpg" | "jpeg" | "webp"
+            ) =>
+        {
+            path
+        }
+        _ => path.with_extension("png"),
+    })
 }
 
 fn primary_monitor() -> Result<Monitor, ToolError> {
@@ -200,10 +203,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn screenshot_path_is_forced_to_png() {
+    fn screenshot_path_keeps_a_recognized_extension() {
         let dir = std::env::temp_dir().join("deskctl-path-test");
         let path = normalize_png_path(Some("foo.jpg"), &dir).unwrap();
-        assert_eq!(path.extension().and_then(|v| v.to_str()), Some("png"));
+        assert_eq!(path.extension().and_then(|v| v.to_str()), Some("jpg"));
     }
 
     #[test]

@@ -57,12 +57,18 @@ enum Commands {
         socket: Option<String>,
         #[arg(long)]
         token_file: Option<PathBuf>,
+        #[arg(long)]
+        session_token: Option<String>,
+        #[arg(long)]
+        request_id: Option<String>,
     },
     /// Manage daemon sessions.
     Session {
         #[command(subcommand)]
         command: SessionCommands,
     },
+    /// Cancel a running daemon request by request_id.
+    Cancel { request_id: String },
     /// Run the MCP stdio server. It uses one in-process session.
     Mcp {
         #[arg(long)]
@@ -106,6 +112,8 @@ enum SessionCommands {
         socket: Option<String>,
         #[arg(long)]
         token_file: Option<PathBuf>,
+        #[arg(long)]
+        session_token: Option<String>,
     },
     Close {
         id: String,
@@ -113,6 +121,8 @@ enum SessionCommands {
         socket: Option<String>,
         #[arg(long)]
         token_file: Option<PathBuf>,
+        #[arg(long)]
+        session_token: Option<String>,
     },
 }
 
@@ -174,7 +184,14 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
                 "{}",
                 serde_json::to_string_pretty(&result).map_err(|error| error.to_string())?
             );
-            Ok(if result.ok { 0 } else { 1 })
+            Ok(if result.ok {
+                0
+            } else {
+                result
+                    .error
+                    .as_ref()
+                    .map_or(1, |error| exit_code_for_code(error.code.as_str()))
+            })
         }
         Commands::Serve {
             socket,
@@ -196,6 +213,8 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
             stdin,
             socket,
             token_file,
+            session_token,
+            request_id,
         } => {
             let args = read_args(json, stdin)?;
             let result = client::request(
@@ -204,8 +223,10 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
                 "tools/call",
                 serde_json::json!({
                     "session_id": session,
+                    "session_token": session_token,
                     "tool": tool,
                     "arguments": args,
+                    "request_id": request_id,
                 }),
             )
             .await?;
@@ -213,7 +234,7 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
                 "{}",
                 serde_json::to_string_pretty(&result).map_err(|error| error.to_string())?
             );
-            Ok(0)
+            Ok(exit_code_for(&result))
         }
         Commands::Session { command } => {
             let (method, params, socket, token_file) = match command {
@@ -239,9 +260,10 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
                     id,
                     socket,
                     token_file,
+                    session_token,
                 } => (
                     "session/inspect",
-                    serde_json::json!({ "session_id": id }),
+                    serde_json::json!({ "session_id": id, "session_token": session_token }),
                     socket.unwrap_or_else(config::default_socket_name),
                     token_file.unwrap_or_else(config::token_path),
                 ),
@@ -249,9 +271,10 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
                     id,
                     socket,
                     token_file,
+                    session_token,
                 } => (
                     "session/close",
-                    serde_json::json!({ "session_id": id }),
+                    serde_json::json!({ "session_id": id, "session_token": session_token }),
                     socket.unwrap_or_else(config::default_socket_name),
                     token_file.unwrap_or_else(config::token_path),
                 ),
@@ -270,6 +293,26 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
             )
             .await?;
             Ok(0)
+        }
+        Commands::Cancel { request_id } => {
+            let result = client::request(
+                &config::default_socket_name(),
+                &config::token_path(),
+                "request/cancel",
+                serde_json::json!({ "request_id": request_id }),
+            )
+            .await?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&result).map_err(|error| error.to_string())?
+            );
+            Ok(
+                if result.get("cancelled").and_then(Value::as_bool) == Some(true) {
+                    0
+                } else {
+                    1
+                },
+            )
         }
         Commands::Doctor => {
             let report = deskctl_core::doctor::report();
@@ -349,11 +392,16 @@ fn exit_code_for(value: &Value) -> i32 {
     if value.get("ok").and_then(Value::as_bool) == Some(true) {
         return 0;
     }
-    let code = value
-        .get("error")
-        .and_then(|error| error.get("code"))
-        .and_then(Value::as_str)
-        .unwrap_or("internal");
+    exit_code_for_code(
+        value
+            .get("error")
+            .and_then(|error| error.get("code"))
+            .and_then(Value::as_str)
+            .unwrap_or("internal"),
+    )
+}
+
+fn exit_code_for_code(code: &str) -> i32 {
     match code {
         "invalid_params" | "unknown_tool" => 2,
         "stale_capture" | "stale_observation" | "server_restarted" => 4,

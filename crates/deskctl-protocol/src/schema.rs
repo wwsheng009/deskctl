@@ -118,7 +118,12 @@ pub fn input_schema(name: ToolName) -> Value {
         ToolName::Screenshot => object(
             json!({
                 "path": { "type": "string" },
-                "region": rect()
+                "region": rect(),
+                "format": { "type": "string", "enum": ["png","jpeg","webp"], "description": "Output format; defaults to the daemon capture policy" },
+                "quality": { "type": "integer", "minimum": 1, "maximum": 100, "description": "JPEG/WebP quality" },
+                "max_width": { "type": "integer", "minimum": 1, "maximum": 16384 },
+                "max_height": { "type": "integer", "minimum": 1, "maximum": 16384 },
+                "max_bytes": { "type": "integer", "minimum": 1024, "maximum": 67108864, "description": "Hard cap; encoder reduces quality/dimensions until it fits" }
             }),
             &[],
         ),
@@ -127,7 +132,12 @@ pub fn input_schema(name: ToolName) -> Value {
             json!({
                 "hwnd": { "type": "integer" },
                 "title": { "type": "string" },
-                "path": { "type": "string" }
+                "path": { "type": "string" },
+                "format": { "type": "string", "enum": ["png","jpeg","webp"] },
+                "quality": { "type": "integer", "minimum": 1, "maximum": 100 },
+                "max_width": { "type": "integer", "minimum": 1, "maximum": 16384 },
+                "max_height": { "type": "integer", "minimum": 1, "maximum": 16384 },
+                "max_bytes": { "type": "integer", "minimum": 1024, "maximum": 67108864 }
             }),
             &[],
         ),

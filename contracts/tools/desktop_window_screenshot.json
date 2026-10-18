@@ -12,6 +12,34 @@
       },
       "path": {
         "type": "string"
+      },
+      "format": {
+        "type": "string",
+        "enum": [
+          "png",
+          "jpeg",
+          "webp"
+        ]
+      },
+      "quality": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100
+      },
+      "max_width": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 16384
+      },
+      "max_height": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 16384
+      },
+      "max_bytes": {
+        "type": "integer",
+        "minimum": 1024,
+        "maximum": 67108864
       }
     },
     "required": [],
