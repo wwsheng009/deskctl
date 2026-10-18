@@ -390,9 +390,15 @@ mod tests {
         })
     }
 
+    fn output_dir() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join("deskctl-capture-policy");
+        let _ = std::fs::create_dir_all(&dir);
+        dir
+    }
+
     #[test]
     fn default_format_is_png_and_extension_selects_format() {
-        let dir = std::env::temp_dir().join("deskctl-capture-policy");
+        let dir = output_dir();
         let policy = CapturePolicy::default();
         let output = encode_and_save(&image(), Some("shot-default"), &dir, &policy).unwrap();
         assert_eq!(output.format, OutputFormat::Png);
@@ -409,7 +415,7 @@ mod tests {
 
     #[test]
     fn jpeg_quality_reduces_size() {
-        let dir = std::env::temp_dir().join("deskctl-capture-policy");
+        let dir = output_dir();
         let low = CapturePolicy {
             format: OutputFormat::Jpeg,
             quality: 30,
@@ -427,7 +433,7 @@ mod tests {
 
     #[test]
     fn max_dimensions_downscale() {
-        let dir = std::env::temp_dir().join("deskctl-capture-policy");
+        let dir = output_dir();
         let policy = CapturePolicy {
             max_width: Some(320),
             max_height: Some(240),
@@ -440,7 +446,7 @@ mod tests {
 
     #[test]
     fn max_bytes_is_enforced_or_rejected() {
-        let dir = std::env::temp_dir().join("deskctl-capture-policy");
+        let dir = output_dir();
         let policy = CapturePolicy {
             format: OutputFormat::Jpeg,
             quality: 95,

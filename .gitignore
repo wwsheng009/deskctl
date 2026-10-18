@@ -3,6 +3,10 @@
 **/target/
 /artifacts/
 /debug_ocr/
+/crates/deskctl-core/*.png
+/crates/deskctl-core/*.jpg
+/crates/deskctl-core/*.jpeg
+/crates/deskctl-core/*.webp
 
 # Local model assets (download or package separately)
 /models/*.onnx
