@@ -25,6 +25,7 @@
 *.tmp
 .deskctl/
 .aicli/
+/captures/
 
 # OS/editor noise
 .DS_Store
