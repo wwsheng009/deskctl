@@ -2,6 +2,7 @@
 /target/
 **/target/
 /artifacts/
+/dist/
 /debug_ocr/
 /crates/deskctl-core/*.png
 /crates/deskctl-core/*.jpg

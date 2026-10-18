@@ -1,8 +1,9 @@
 # Deskctl 验收标准
 
-- 文档版本：0.1
+- 文档版本：0.2
 - 日期：2026-10-18
 - 状态：Draft
+- 修订：0.2 将 AC-CAP-004/005、AC-SEC-005 的扩展名规则对齐 [capture-compression.md](capture-compression.md)（显式 `format` > 可识别扩展名 > 服务端默认）
 - 适用版本：Windows 首个可用版本
 - 关联文档：[architecture.md](architecture.md)、[test-plan.md](test-plan.md)、[mcp-service.md](mcp-service.md)
 
@@ -45,10 +46,13 @@
 | AC-CAP-001 | 全屏截图 | 返回 `capture_id`、路径、宽高；PNG 文件可打开 |
 | AC-CAP-002 | 区域截图 | 区域宽高与输出图片一致；坐标从屏幕坐标正确裁剪 |
 | AC-CAP-003 | 窗口截图 | 指定 `hwnd` 可生成窗口 PNG；窗口不存在返回结构化错误 |
-| AC-CAP-004 | 自定义路径 | 接受绝对/相对路径；父目录自动创建；扩展名强制 `.png` |
-| AC-CAP-005 | 路径扩展名 | 输入 `foo.jpg` 时实际输出 `foo.png`，返回路径为 `.png` |
+| AC-CAP-004 | 自定义路径 | 接受绝对/相对路径；父目录自动创建；输出扩展名与所选格式一致（`.png`/`.jpg`/`.webp`） |
+| AC-CAP-005 | 格式选择 | 优先级：显式 `format` > 可识别扩展名（`.png`/`.jpg`/`.jpeg`/`.webp`）> 服务端默认；`foo.jpg` 输出 JPEG `foo.jpg`，无法识别的 `foo.bmp` 回退默认 PNG `foo.png` |
 | AC-CAP-006 | 屏幕尺寸 | `desktop_screen_size` 返回主屏宽高，数值为正 |
 | AC-CAP-007 | 截图失效 | 截图后窗口变化时，窗口截图返回明确错误，不返回旧图 |
+| AC-CAP-008 | 压缩参数 | `quality`/`max_width`/`max_height`/`max_bytes` 生效；返回 `format`/`bytes`/`resized` 与实际文件一致 |
+
+> 截图格式、质量、缩放与字节上限的完整策略见 [capture-compression.md](capture-compression.md)。
 
 ### 3.2 窗口
 
@@ -231,7 +235,7 @@
 | AC-SEC-002 | 访问控制 | 无 token/错误 token 无法连接 |
 | AC-SEC-003 | 无审批 | 不存在 approve/reject 命令、MCP 工具或 pending 队列 |
 | AC-SEC-004 | 风险元数据 | 关键动作返回 `meta.risk`，但不停顿 |
-| AC-SEC-005 | 自定义截图路径 | 合法路径可写；父目录自动创建；扩展名强制 `.png` |
+| AC-SEC-005 | 自定义截图路径 | 合法路径可写；父目录自动创建；扩展名与所选格式一致 |
 | AC-SEC-006 | 字库路径穿越 | `dict_name` 含 `..`/分隔符/绝对路径被拒绝 |
 | AC-SEC-007 | 输入读取限制 | 模板/视觉图片只从允许目录读取 |
 | AC-SEC-008 | 日志脱敏 | 输入文本、剪贴板、窗口标题、截图不进入普通日志 |

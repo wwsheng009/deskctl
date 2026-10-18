@@ -2,12 +2,18 @@
 #
 # Covers the AC-SEC / AC-SESS items that can be exercised on a single Windows
 # host against a private daemon instance:
+#   AC-SEC-001 本地监听 (daemon owns no TCP/UDP listener)
 #   AC-SEC-002 访问控制 (bad daemon token rejected)
+#   AC-SEC-003 无审批 (tool results carry no approval/pending fields)
+#   AC-SEC-004 风险元数据 (input tools return meta.risk and do not pause)
+#   AC-SEC-005 自定义截图路径 (nested path created, extension matches format)
 #   AC-SEC-006 字库路径穿越 (dict_name traversal rejected)
 #   AC-SEC-009 / AC-SESS-002 会话隔离 (foreign session token rejected)
 #   AC-SEC-010 无脚本执行 (no tool executes shell commands)
+#   AC-SESS-003 输入串行 (8 concurrent input calls are serialized)
 #   AC-SESS-005 会话关闭 (tokens invalid after close)
 #   AC-SESS-007 会话上限 (max_sessions -> resource_busy)
+#   AC-SESS-009 公平性 (no starvation under input contention)
 # Usage: pwsh scripts/security-check.ps1 [-Binary <path>]
 
 param(
@@ -79,6 +85,10 @@ for ($attempt = 0; $attempt -lt 60; $attempt++) {
 if (-not $ready) { throw "daemon did not become ready within 15s: $lastError" }
 
 try {
+    # AC-SEC-001: the private daemon must not open TCP/UDP listeners.
+    $listeners = @(netstat -ano | Select-String -Pattern "^\s+(TCP|UDP)\s+.*\s$($daemon.Id)\s*$")
+    Add-Check 'AC-SEC-001' 'daemon owns no TCP/UDP listeners' ($listeners.Count -eq 0) "listeners=$($listeners.Count) pid=$($daemon.Id)"
+
     # AC-SEC-002: a wrong daemon token must be rejected.
     $badToken = Join-Path ([System.IO.Path]::GetTempPath()) 'deskctl-bad.token'
     Set-Content -Path $badToken -Value 'not-the-real-token' -Encoding ascii
@@ -105,6 +115,47 @@ try {
     $traversal = Invoke-Deskctl (@('call', $sessionA.session_id, 'desktop_find_text',
             '--session-token', $sessionA.session_token, '--json', '{"dict_name":"..\\secret"}') + $common) -AllowFailure
     Add-Check 'AC-SEC-006' 'dict_name traversal is rejected' ($traversal.text -match 'policy_denied|invalid_params') "output=$($traversal.text -replace '\s+', ' ')"
+
+    # AC-SEC-003 / AC-SEC-004: input tools report meta.risk and return without
+    # any approval handshake or pending queue.
+    $mouse = Invoke-Deskctl (@('call', $sessionB.session_id, 'desktop_mouse',
+            '--session-token', $sessionB.session_token, '--json', '{"action":"position"}') + $common)
+    $approvalWords = @('approve', 'approval', 'pending_approval')
+    $approvalHit = @($approvalWords | Where-Object { $mouse.text -match $_ })
+    Add-Check 'AC-SEC-003' 'tool result has no approval/pending fields' ($approvalHit.Count -eq 0) "matches=$($approvalHit -join ',')"
+    Add-Check 'AC-SEC-004' 'input tool returns meta.risk without pausing' ($mouse.json.meta.risk -eq 'bounded_write') "risk=$($mouse.json.meta.risk) exit=$($mouse.exit)"
+
+    # AC-SEC-005: a nested custom screenshot path is created and the extension
+    # follows the selected format.
+    $secDir = Join-Path ([System.IO.Path]::GetTempPath()) 'deskctl-sec-check'
+    Remove-Item -Recurse -Force $secDir -ErrorAction SilentlyContinue
+    $nested = Join-Path $secDir 'nested\shot.jpg'
+    $shot = Invoke-Deskctl (@('call', $sessionB.session_id, 'desktop_screenshot',
+            '--session-token', $sessionB.session_token, '--json', ('{{"path":"{0}"}}' -f ($nested -replace '\\', '/'))) + $common)
+    $created = Test-Path $nested
+    Add-Check 'AC-SEC-005' 'nested custom path is written with the selected extension' ($created -and $shot.json.data.format -eq 'jpeg' -and $shot.json.data.path -match '\.jpg$') "path=$($shot.json.data.path) format=$($shot.json.data.format) exists=$created"
+
+    # AC-SESS-003 / AC-SESS-009: concurrent no-op mouse moves are serialized by
+    # the input resource gate; all calls finish and none starves.
+    $cursor = (Invoke-Deskctl (@('call', $sessionB.session_id, 'desktop_mouse',
+            '--session-token', $sessionB.session_token, '--json', '{"action":"position"}') + $common)).json.data
+    $moveArgs = '{{"action":"move","x":{0},"y":{1}}}' -f $cursor.x, $cursor.y
+    $targets = @($sessionA, $sessionB, $sessionA, $sessionB, $sessionA, $sessionB, $sessionA, $sessionB)
+    $callArgs = @(foreach ($target in $targets) {
+            , (@('call', $target.session_id, 'desktop_mouse', '--session-token', $target.session_token, '--json', $moveArgs) + $common)
+        })
+    $concurrent = @($callArgs | ForEach-Object -Parallel {
+            $timer = [System.Diagnostics.Stopwatch]::StartNew()
+            $text = (& $using:Binary @_ 2>&1 | Out-String).Trim()
+            $timer.Stop()
+            [pscustomobject]@{ exit = $LASTEXITCODE; ms = $timer.ElapsedMilliseconds; output = $text }
+        } -ThrottleLimit 8)
+    $concurrentFailed = @($concurrent | Where-Object { $_.exit -ne 0 })
+    $latency = @($concurrent | ForEach-Object { [int]$_.ms } | Sort-Object)
+    $p50 = $latency[[int][Math]::Floor($latency.Count / 2)]
+    $max = $latency[-1]
+    Add-Check 'AC-SESS-003' '8 concurrent input calls are serialized, all succeed' ($concurrentFailed.Count -eq 0) "failures=$($concurrentFailed.Count) exits=$((@($concurrent | ForEach-Object { $_.exit }) -join ','))"
+    Add-Check 'AC-SESS-009' 'no starvation under input contention' ($concurrentFailed.Count -eq 0 -and $max -le [Math]::Max(2000, $p50 * 20)) "p50=${p50}ms max=${max}ms"
 
     # AC-SESS-007: exceeding max_sessions returns resource_busy.
     $overflow = Invoke-Deskctl (@('session', 'create') + $common) -AllowFailure

@@ -601,7 +601,7 @@ pub trait SemanticBackend {
 - 平台不支持时返回 `platform_not_supported`，不返回空数组伪装成功。
 - 需要权限的调用在入口处检查，并给出可操作的错误信息。
 - 原生句柄不进入模型可见的 Schema；模型只看到 token 或候选 ID。
-- 自定义截图输出路径由调用方提供；平台层只负责创建父目录、强制 `.png` 并写入。
+- 自定义截图输出路径由调用方提供；平台层只负责创建父目录、按所选格式写入并规范化扩展名（格式策略见 [capture-compression.md](capture-compression.md)）。
 
 ### 9.1 Windows（首期）
 
@@ -610,7 +610,7 @@ pub trait SemanticBackend {
 - 截图：GDI/DXGI；窗口截图需要验证目标窗口未变化。
 - 语义：UI Automation COM；使用专用 STA worker 和线程固定。
 - 剪贴板：Win32 Clipboard；文件路径读取使用 CF_HDROP。
-- 自定义截图路径：接受绝对/相对路径，父目录不存在时创建，扩展名统一为 `.png`。
+- 自定义截图路径：接受绝对/相对路径，父目录不存在时创建；扩展名与所选格式一致（显式 `format` > 扩展名 > 默认，见 [capture-compression.md](capture-compression.md)）。
 - 普通用户权限即可；操作高权限窗口可能被系统拒绝，必须返回真实错误。
 
 ### 9.2 macOS（预留）
@@ -702,7 +702,7 @@ pub trait SemanticBackend {
 ### 11.4 文件路径
 
 - `desktop_screenshot` / `desktop_window_screenshot` 允许调用方自定义输出路径。
-- 输出路径的父目录自动创建，扩展名强制为 `.png`。
+- 输出路径的父目录自动创建，扩展名与所选格式一致。
 - 自定义路径不提供沙箱；调用方需自行保证路径安全。
 - `desktop_find_text` 的 `dict_name` 只允许安全 basename，禁止 `..`、路径分隔符和绝对路径。
 - `desktop_find_image`、`desktop_vision` 的输入图片限制在允许读取目录，或由调用方显式配置。

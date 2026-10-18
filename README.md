@@ -59,7 +59,10 @@ Get-Content args.json | deskctl tool desktop_find_image --stdin
 ```
 
 Screenshot paths are accepted as absolute or relative paths. Parent directories
-are created and the extension is forced to `.png` (`shot.jpg` becomes `shot.png`).
+are created and the extension follows the selected format: an explicit `format`
+argument wins, otherwise a recognized `.png`/`.jpg`/`.jpeg`/`.webp` extension
+selects the encoder, and anything else falls back to the default (`shot.bmp`
+becomes `shot.png`). See [docs/capture-compression.md](docs/capture-compression.md).
 
 Exit codes: `0` success, `1` internal/tool failure, `2` invalid parameters or
 unknown tool, `4` stale state/restart, `5` resource busy, `6` platform
