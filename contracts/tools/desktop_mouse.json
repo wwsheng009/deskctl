@@ -60,6 +60,11 @@
         "minimum": 1,
         "maximum": 100,
         "default": 3
+      },
+      "allow_occluded": {
+        "type": "boolean",
+        "default": false,
+        "description": "Force a click whose target point is occluded by a different window"
       }
     },
     "required": [

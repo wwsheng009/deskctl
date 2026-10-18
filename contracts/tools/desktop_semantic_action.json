@@ -1,6 +1,6 @@
 {
   "name": "desktop_semantic_action",
-  "description": "Execute a saved semantic locator without a temporary observation token.",
+  "description": "Execute a saved semantic locator (invoke/toggle/set_checked/select/expand/collapse/focus/set_value/scroll/scroll_into_view/set_range_value) with delivery mode, optional launch_ref and inline expectation verification.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -50,11 +50,15 @@
             "enum": [
               "invoke",
               "toggle",
+              "set_checked",
               "select",
               "expand",
               "collapse",
               "focus",
-              "set_value"
+              "set_value",
+              "scroll",
+              "scroll_into_view",
+              "set_range_value"
             ]
           },
           "ordinal_hint": {
@@ -73,12 +77,20 @@
         "enum": [
           "invoke",
           "toggle",
+          "set_checked",
           "select",
           "expand",
           "collapse",
           "focus",
-          "set_value"
+          "set_value",
+          "scroll",
+          "scroll_into_view",
+          "set_range_value"
         ]
+      },
+      "launch_ref": {
+        "type": "string",
+        "description": "Optional app_ref from desktop_targets_list; relaunches the app when the locator window is missing"
       },
       "value": {
         "type": "string",
@@ -91,7 +103,153 @@
           "auto",
           "background"
         ],
-        "default": "foreground"
+        "default": "auto"
+      },
+      "checked": {
+        "type": "boolean",
+        "description": "Desired state for set_checked; already-satisfied targets are not clicked"
+      },
+      "direction": {
+        "type": "string",
+        "enum": [
+          "up",
+          "down",
+          "left",
+          "right"
+        ]
+      },
+      "amount": {
+        "type": "string",
+        "enum": [
+          "small",
+          "page"
+        ],
+        "default": "small"
+      },
+      "completion_policy": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "verified",
+          "dispatched"
+        ],
+        "default": "auto"
+      },
+      "expectation": {
+        "type": "object",
+        "properties": {
+          "locator": {
+            "type": "object",
+            "properties": {
+              "app_id": {
+                "type": "string"
+              },
+              "window_id": {
+                "type": "string"
+              },
+              "window_title": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "window",
+                  "button",
+                  "text_field",
+                  "check_box",
+                  "radio_button",
+                  "list",
+                  "list_item",
+                  "menu",
+                  "menu_item",
+                  "tab",
+                  "document",
+                  "other"
+                ]
+              },
+              "automation_id": {
+                "type": "string"
+              },
+              "accessible_name": {
+                "type": "string"
+              },
+              "ancestor_chain": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "supported_action": {
+                "type": "string",
+                "enum": [
+                  "invoke",
+                  "toggle",
+                  "set_checked",
+                  "select",
+                  "expand",
+                  "collapse",
+                  "focus",
+                  "set_value",
+                  "scroll",
+                  "scroll_into_view",
+                  "set_range_value"
+                ]
+              },
+              "ordinal_hint": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 65535
+              }
+            },
+            "required": [
+              "app_id"
+            ],
+            "additionalProperties": false
+          },
+          "condition": {
+            "type": "string",
+            "enum": [
+              "exists",
+              "absent",
+              "window_exists",
+              "window_absent",
+              "focused",
+              "checked",
+              "selected",
+              "expanded",
+              "value_equals"
+            ]
+          },
+          "expected": {
+            "type": "boolean",
+            "default": true
+          },
+          "value": {
+            "type": "string"
+          },
+          "timeout_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 300000,
+            "default": 5000
+          },
+          "stable_samples": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5,
+            "default": 2
+          }
+        },
+        "required": [
+          "locator",
+          "condition"
+        ],
+        "additionalProperties": false
+      },
+      "restore_foreground": {
+        "type": "boolean",
+        "default": false,
+        "description": "Restore the pre-action foreground window after the action (best effort)"
       }
     },
     "required": [

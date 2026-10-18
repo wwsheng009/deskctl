@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1.0",
   "profile": "full",
-  "count": 28,
+  "count": 30,
   "tools": [
     {
       "name": "desktop_mouse",
@@ -46,6 +46,14 @@
     {
       "name": "desktop_window_info",
       "file": "desktop_window_info.json"
+    },
+    {
+      "name": "desktop_image_crop",
+      "file": "desktop_image_crop.json"
+    },
+    {
+      "name": "desktop_document_save",
+      "file": "desktop_document_save.json"
     },
     {
       "name": "desktop_vision",

@@ -1,6 +1,6 @@
 {
   "name": "desktop_targets_list",
-  "description": "List running windows and local application targets.",
+  "description": "List running windows; a query also matches launchable app refs from the local shortcut catalog.",
   "inputSchema": {
     "type": "object",
     "properties": {

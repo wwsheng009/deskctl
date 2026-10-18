@@ -1,6 +1,6 @@
 {
   "name": "desktop_verify_state",
-  "description": "Verify a semantic postcondition without repeating the action.",
+  "description": "Verify a semantic postcondition with bounded waiting and stable sampling; never repeats the action.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -53,11 +53,15 @@
                 "enum": [
                   "invoke",
                   "toggle",
+                  "set_checked",
                   "select",
                   "expand",
                   "collapse",
                   "focus",
-                  "set_value"
+                  "set_value",
+                  "scroll",
+                  "scroll_into_view",
+                  "set_range_value"
                 ]
               },
               "ordinal_hint": {
@@ -97,6 +101,12 @@
             "minimum": 0,
             "maximum": 300000,
             "default": 5000
+          },
+          "stable_samples": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5,
+            "default": 2
           }
         },
         "required": [

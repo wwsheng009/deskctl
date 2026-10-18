@@ -4,6 +4,7 @@ pub mod apps;
 pub mod capture_policy;
 pub mod config;
 pub mod doctor;
+pub mod docx;
 mod engine;
 pub mod models;
 pub mod platform;

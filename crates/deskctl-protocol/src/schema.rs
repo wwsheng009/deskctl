@@ -302,6 +302,50 @@ pub fn input_schema(name: ToolName) -> Value {
             &["locator", "action"],
         ),
         ToolName::VerifyState => object(json!({ "expectation": expectation() }), &["expectation"]),
+        ToolName::ImageCrop => object(
+            json!({
+                "capture_id": { "type": "string" },
+                "image_path": { "type": "string" },
+                "x": { "type": "integer" },
+                "y": { "type": "integer" },
+                "width": { "type": "integer", "minimum": 1 },
+                "height": { "type": "integer", "minimum": 1 },
+                "path": { "type": "string" },
+                "format": { "type": "string", "enum": ["png","jpeg","webp"] },
+                "quality": { "type": "integer", "minimum": 1, "maximum": 100 },
+                "max_width": { "type": "integer", "minimum": 1, "maximum": 16384 },
+                "max_height": { "type": "integer", "minimum": 1, "maximum": 16384 },
+                "max_bytes": { "type": "integer", "minimum": 1024, "maximum": 67108864 }
+            }),
+            &["x", "y", "width", "height"],
+        ),
+        ToolName::DocumentSave => object(
+            json!({
+                "path": { "type": "string" },
+                "title": { "type": "string" },
+                "sections": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": object(
+                        json!({
+                            "heading": { "type": "string" },
+                            "text": { "type": "string", "maxLength": 65536 },
+                            "image": object(
+                                json!({
+                                    "capture_id": { "type": "string" },
+                                    "image_path": { "type": "string" },
+                                    "caption": { "type": "string" },
+                                    "width_cm": { "type": "number", "minimum": 1, "maximum": 18 }
+                                }),
+                                &[],
+                            )
+                        }),
+                        &[],
+                    )
+                }
+            }),
+            &["sections"],
+        ),
         ToolName::AgentStep => object(
             json!({
                 "goal": { "type": "string", "minLength": 1 },
@@ -354,8 +398,8 @@ mod tests {
 
     #[test]
     fn descriptors_have_stable_counts_and_names() {
-        assert_eq!(tool_descriptors(ToolProfile::Standard).len(), 26);
-        assert_eq!(tool_descriptors(ToolProfile::Full).len(), 28);
+        assert_eq!(tool_descriptors(ToolProfile::Standard).len(), 28);
+        assert_eq!(tool_descriptors(ToolProfile::Full).len(), 30);
         for descriptor in tool_descriptors(ToolProfile::Full) {
             assert!(descriptor["name"]
                 .as_str()

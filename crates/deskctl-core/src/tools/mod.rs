@@ -90,6 +90,8 @@ pub async fn execute(
         ToolName::WindowMove => window_move(args),
         ToolName::WindowResize => window_resize(args),
         ToolName::WindowScreenshot => window_screenshot(engine, session, args),
+        ToolName::ImageCrop => image_crop(engine, session, args),
+        ToolName::DocumentSave => document_save(engine, session, args),
         ToolName::Mouse => mouse(session, args),
         ToolName::MouseDrag => mouse_drag(session, args),
         ToolName::Input => input(session, args),
@@ -928,6 +930,202 @@ fn perceive(engine: &Engine, session: &Session, args: &Value) -> Result<ToolExec
         "elements": public,
         "count": public.len()
     })))
+}
+
+/// 从已登记截图或允许目录中的图片裁剪一块区域，按截图策略编码保存；
+/// capture 来源会登记为新的可链式 capture（元素坐标映射保持）。
+fn image_crop(
+    engine: &Engine,
+    session: &Session,
+    args: &Value,
+) -> Result<ToolExecution, ToolError> {
+    let x = required_i32(args, "x")?;
+    let y = required_i32(args, "y")?;
+    let width = required_u32(args, "width")?;
+    let height = required_u32(args, "height")?;
+    if width == 0 || height == 0 {
+        return Err(invalid("width and height must be positive"));
+    }
+    let capture_id = args.get("capture_id").and_then(Value::as_str);
+    let image_path = args.get("image_path").and_then(Value::as_str);
+    let (source_image, source_label, source_capture) = match (capture_id, image_path) {
+        (Some(_), Some(_)) => {
+            return Err(invalid("capture_id and image_path are mutually exclusive"))
+        }
+        (None, None) => return Err(invalid("image_crop requires capture_id or image_path")),
+        (Some(id), None) => {
+            let capture = session.capture(id)?;
+            let image = image::open(&capture.path)
+                .map_err(|error| invalid(format!("capture image could not be opened: {error}")))?
+                .to_rgba8();
+            (image, json!({ "capture_id": id }), Some(capture))
+        }
+        (None, Some(raw)) => {
+            let path = normalize_image_path(engine, raw)?;
+            let image = image::open(&path)
+                .map_err(|error| invalid(format!("image could not be opened: {error}")))?
+                .to_rgba8();
+            (
+                image,
+                json!({ "image_path": path.display().to_string() }),
+                None,
+            )
+        }
+    };
+    let image_width = source_image.width();
+    let image_height = source_image.height();
+    if x < 0
+        || y < 0
+        || i64::from(x) + i64::from(width) > i64::from(image_width)
+        || i64::from(y) + i64::from(height) > i64::from(image_height)
+    {
+        return Err(ToolError::new(
+            ErrorCode::InvalidParams,
+            "region is outside the source image",
+        )
+        .details(json!({
+            "image_width": image_width,
+            "image_height": image_height,
+            "region": { "x": x, "y": y, "width": width, "height": height }
+        })));
+    }
+    let cropped =
+        image::imageops::crop_imm(&source_image, x as u32, y as u32, width, height).to_image();
+    let policy = crate::capture_policy::CapturePolicy::from_args(args, &engine.config().capture)?;
+    let encoded = platform::save_capture_with_format(
+        &cropped,
+        args.get("path").and_then(Value::as_str),
+        &engine.config().output_dir,
+        &policy,
+        args.get("format").and_then(Value::as_str),
+    )?;
+    let mut output_capture_id = Value::Null;
+    if let Some(source) = source_capture {
+        let screen_rect = ScreenRect {
+            x: source.screen_rect.x + x,
+            y: source.screen_rect.y + y,
+            width,
+            height,
+        };
+        let capture = platform::CapturedImage {
+            image: cropped,
+            screen_rect,
+            foreground_hwnd: source.foreground_hwnd,
+        };
+        output_capture_id = json!(store_capture(
+            session,
+            &capture,
+            encoded.path.to_string_lossy().into_owned()
+        )?);
+    }
+    Ok(ToolExecution::read(json!({
+        "capture_id": output_capture_id,
+        "path": encoded.path.to_string_lossy(),
+        "format": encoded.format.as_str(),
+        "width": encoded.width,
+        "height": encoded.height,
+        "source": source_label,
+        "region": { "x": x, "y": y, "width": width, "height": height },
+        "source_width": image_width,
+        "source_height": image_height,
+        "bytes": encoded.bytes,
+        "resized": encoded.resized
+    })))
+}
+
+/// 把若干截图/图片与文字汇总为 `.docx` 文档（纯本地文件操作，不抢前台）。
+fn document_save(
+    engine: &Engine,
+    session: &Session,
+    args: &Value,
+) -> Result<ToolExecution, ToolError> {
+    let sections = args
+        .get("sections")
+        .and_then(Value::as_array)
+        .filter(|sections| !sections.is_empty())
+        .ok_or_else(|| invalid("sections must be a non-empty array"))?;
+    let mut blocks: Vec<crate::docx::Block> = Vec::new();
+    if let Some(title) = args.get("title").and_then(Value::as_str) {
+        blocks.push(crate::docx::Block::Title(title.to_string()));
+    }
+    let mut image_count = 0u32;
+    for section in sections {
+        if let Some(heading) = section.get("heading").and_then(Value::as_str) {
+            blocks.push(crate::docx::Block::Heading(heading.to_string()));
+        }
+        if let Some(text) = section.get("text").and_then(Value::as_str) {
+            blocks.push(crate::docx::Block::Paragraph(text.to_string()));
+        }
+        if let Some(image) = section.get("image").filter(|value| value.is_object()) {
+            let (png, width_px, height_px) = load_document_image(engine, session, image)?;
+            blocks.push(crate::docx::Block::Image {
+                png,
+                width_px,
+                height_px,
+                caption: image
+                    .get("caption")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                width_cm: image.get("width_cm").and_then(Value::as_f64),
+            });
+            image_count += 1;
+        }
+    }
+    blocks.push(crate::docx::Block::Paragraph(format!(
+        "由 deskctl {} 生成于 {}",
+        env!("CARGO_PKG_VERSION"),
+        chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+    )));
+    let path = match args.get("path").and_then(Value::as_str) {
+        Some(path) if !path.trim().is_empty() => std::path::PathBuf::from(path),
+        _ => engine.config().output_dir.join(format!(
+            "deskctl-report-{}.docx",
+            chrono::Local::now().format("%Y%m%d-%H%M%S")
+        )),
+    };
+    let bytes = crate::docx::write_document(&path, &blocks)?;
+    Ok(ToolExecution::read(json!({
+        "path": path.display().to_string(),
+        "bytes": bytes,
+        "sections": sections.len(),
+        "images": image_count,
+        "title": args.get("title").and_then(Value::as_str)
+    })))
+}
+
+fn load_document_image(
+    engine: &Engine,
+    session: &Session,
+    image: &Value,
+) -> Result<(Vec<u8>, u32, u32), ToolError> {
+    let capture_id = image.get("capture_id").and_then(Value::as_str);
+    let image_path = image.get("image_path").and_then(Value::as_str);
+    let decoded = match (capture_id, image_path) {
+        (Some(_), Some(_)) => {
+            return Err(invalid(
+                "image.capture_id and image.image_path are mutually exclusive",
+            ))
+        }
+        (None, None) => return Err(invalid("image requires capture_id or image_path")),
+        (Some(id), None) => {
+            let capture = session.capture(id)?;
+            image::open(&capture.path)
+                .map_err(|error| invalid(format!("capture image could not be opened: {error}")))?
+        }
+        (None, Some(raw)) => {
+            let path = normalize_image_path(engine, raw)?;
+            image::open(&path)
+                .map_err(|error| invalid(format!("image could not be opened: {error}")))?
+        }
+    }
+    .to_rgba8();
+    let width_px = decoded.width();
+    let height_px = decoded.height();
+    let mut cursor = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(decoded)
+        .write_to(&mut cursor, image::ImageFormat::Png)
+        .map_err(|error| ToolError::new(ErrorCode::Internal, format!("encode png: {error}")))?;
+    Ok((cursor.into_inner(), width_px, height_px))
 }
 
 fn targets_list(args: &Value) -> Result<ToolExecution, ToolError> {

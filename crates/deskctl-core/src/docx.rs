@@ -1,0 +1,253 @@
+//! 极简 DOCX 生成器（OOXML + zip），不依赖 Office 或重量级文档库。
+//!
+//! 仅实现报告所需的最小集合：文档标题、小节标题、正文段落、内嵌 PNG 图片与图注。
+//! 生成物是标准 `.docx`（OOXML 包），可被 Word / WPS / LibreOffice 直接打开。
+
+use std::fs::File;
+use std::io::Write;
+use std::path::Path;
+
+use deskctl_protocol::{ErrorCode, ToolError};
+use zip::write::SimpleFileOptions;
+use zip::{CompressionMethod, ZipWriter};
+
+const EMU_PER_PX: f64 = 9525.0; // 96 dpi
+const EMU_PER_CM: f64 = 360_000.0;
+const DEFAULT_MAX_WIDTH_CM: f64 = 15.0;
+
+/// 文档内容块。
+pub enum Block {
+    /// 一级文档标题。
+    Title(String),
+    /// 小节标题。
+    Heading(String),
+    /// 正文段落。
+    Paragraph(String),
+    /// 内嵌 PNG 图片（含可选图注与宽度上限）。
+    Image {
+        png: Vec<u8>,
+        width_px: u32,
+        height_px: u32,
+        caption: Option<String>,
+        width_cm: Option<f64>,
+    },
+}
+
+/// 写出 `.docx`，返回文件字节数。
+pub fn write_document(path: &Path, blocks: &[Block]) -> Result<u64, ToolError> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| internal(format!("create output directory: {error}")))?;
+    }
+    let file = File::create(path).map_err(|error| internal(format!("create document: {error}")))?;
+    let mut zip = ZipWriter::new(file);
+
+    let mut document = String::new();
+    document.push_str(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>"#);
+    document.push_str(
+        r#"<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><w:body>"#,
+    );
+
+    let mut rels: Vec<(String, String)> = Vec::new();
+    let mut media: Vec<Vec<u8>> = Vec::new();
+    let mut image_index = 0usize;
+    let mut drawing_id = 1u32;
+    for block in blocks {
+        match block {
+            Block::Title(text) => document.push_str(&paragraph(text, 32, true, false)),
+            Block::Heading(text) => document.push_str(&paragraph(text, 26, true, false)),
+            Block::Paragraph(text) => document.push_str(&paragraph(text, 0, false, false)),
+            Block::Image {
+                png,
+                width_px,
+                height_px,
+                caption,
+                width_cm,
+            } => {
+                image_index += 1;
+                let (cx, cy) = extent(*width_px, *height_px, *width_cm);
+                let relationship = format!("rIdImg{image_index}");
+                document.push_str(&image_paragraph(
+                    &relationship,
+                    drawing_id,
+                    cx,
+                    cy,
+                    caption.as_deref(),
+                    image_index,
+                ));
+                drawing_id += 1;
+                rels.push((relationship, format!("media/image{image_index}.png")));
+                media.push(png.clone());
+                if let Some(caption) = caption {
+                    document.push_str(&paragraph(caption, 18, false, true));
+                }
+            }
+        }
+    }
+    document.push_str("</w:body></w:document>");
+    write_entry(&mut zip, "[Content_Types].xml", CONTENT_TYPES.as_bytes())?;
+    write_entry(&mut zip, "_rels/.rels", ROOT_RELS.as_bytes())?;
+    write_entry(&mut zip, "word/document.xml", document.as_bytes())?;
+    write_entry(
+        &mut zip,
+        "word/_rels/document.xml.rels",
+        document_rels(&rels).as_bytes(),
+    )?;
+    for (index, png) in media.iter().enumerate() {
+        write_entry(&mut zip, &format!("word/media/image{}.png", index + 1), png)?;
+    }
+    zip.finish()
+        .map_err(|error| internal(format!("finalize document: {error}")))?;
+    std::fs::metadata(path)
+        .map(|metadata| metadata.len())
+        .map_err(|error| internal(format!("read document metadata: {error}")))
+}
+
+const CONTENT_TYPES: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>"#;
+
+const ROOT_RELS: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>"#;
+
+fn document_rels(rels: &[(String, String)]) -> String {
+    let mut xml = String::from(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">"#,
+    );
+    for (id, target) in rels {
+        xml.push_str(&format!(
+            r#"<Relationship Id="{id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="{target}"/>"#
+        ));
+    }
+    xml.push_str("</Relationships>");
+    xml
+}
+
+fn write_entry(zip: &mut ZipWriter<File>, name: &str, data: &[u8]) -> Result<(), ToolError> {
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    zip.start_file(name, options)
+        .map_err(|error| internal(format!("write {name}: {error}")))?;
+    zip.write_all(data)
+        .map_err(|error| internal(format!("write {name}: {error}")))
+}
+
+fn paragraph(text: &str, size_half_pt: u32, bold: bool, italic: bool) -> String {
+    let mut run_properties = String::from("<w:rPr>");
+    if bold {
+        run_properties.push_str("<w:b/>");
+    }
+    if italic {
+        run_properties.push_str("<w:i/>");
+    }
+    if size_half_pt > 0 {
+        run_properties.push_str(&format!(
+            "<w:sz w:val=\"{size_half_pt}\"/><w:szCs w:val=\"{size_half_pt}\"/>"
+        ));
+    }
+    run_properties.push_str("</w:rPr>");
+    format!(
+        "<w:p><w:r>{run_properties}<w:t xml:space=\"preserve\">{}</w:t></w:r></w:p>",
+        escape(text)
+    )
+}
+
+fn image_paragraph(
+    relationship: &str,
+    drawing_id: u32,
+    cx: i64,
+    cy: i64,
+    caption: Option<&str>,
+    index: usize,
+) -> String {
+    let description = escape(caption.unwrap_or("deskctl image"));
+    format!(
+        r#"<w:p><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="{cx}" cy="{cy}"/><wp:docPr id="{drawing_id}" name="Picture {index}" descr="{description}"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="{drawing_id}" name="image{index}.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="{relationship}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>"#
+    )
+}
+
+fn extent(width_px: u32, height_px: u32, width_cm: Option<f64>) -> (i64, i64) {
+    let natural_width = f64::from(width_px) * EMU_PER_PX;
+    let natural_height = f64::from(height_px) * EMU_PER_PX;
+    let max_width = width_cm.unwrap_or(DEFAULT_MAX_WIDTH_CM).clamp(1.0, 18.0) * EMU_PER_CM;
+    let scale = if natural_width > max_width {
+        max_width / natural_width
+    } else {
+        1.0
+    };
+    (
+        (natural_width * scale) as i64,
+        (natural_height * scale) as i64,
+    )
+}
+
+fn escape(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&apos;"),
+            _ => escaped.push(ch),
+        }
+    }
+    escaped
+}
+
+fn internal(message: impl Into<String>) -> ToolError {
+    ToolError::new(ErrorCode::Internal, message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn writes_a_minimal_valid_package() {
+        let directory = std::env::temp_dir().join(format!("docx-test-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).expect("temp dir");
+        let path = directory.join("report.docx");
+        let png = crate::docx::tiny_png();
+        let blocks = vec![
+            Block::Title("Deskctl 报表".to_string()),
+            Block::Heading("截图".to_string()),
+            Block::Paragraph("含 <标签> & 转义".to_string()),
+            Block::Image {
+                png,
+                width_px: 320,
+                height_px: 200,
+                caption: Some("图 1".to_string()),
+                width_cm: Some(10.0),
+            },
+        ];
+        let bytes = write_document(&path, &blocks).expect("write docx");
+        assert!(bytes > 0);
+        let file = File::open(&path).expect("open docx");
+        let mut archive = zip::ZipArchive::new(file).expect("docx zip");
+        let mut names: Vec<String> = (0..archive.len())
+            .map(|index| archive.by_index(index).expect("entry").name().to_string())
+            .collect();
+        names.sort();
+        assert!(names.contains(&"[Content_Types].xml".to_string()));
+        assert!(names.contains(&"word/document.xml".to_string()));
+        assert!(names.contains(&"word/media/image1.png".to_string()));
+        assert!(names.contains(&"word/_rels/document.xml.rels".to_string()));
+        let _ = std::fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn escapes_xml_text() {
+        assert_eq!(escape("a<b>&\"'"), "a&lt;b&gt;&amp;&quot;&apos;");
+    }
+}
+
+/// 供测试使用的 1x1 PNG。
+#[cfg(test)]
+pub(crate) fn tiny_png() -> Vec<u8> {
+    let image = image::RgbaImage::from_pixel(1, 1, image::Rgba([255, 0, 0, 255]));
+    let mut cursor = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(image)
+        .write_to(&mut cursor, image::ImageFormat::Png)
+        .expect("encode png");
+    cursor.into_inner()
+}

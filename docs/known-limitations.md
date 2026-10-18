@@ -36,6 +36,11 @@
   重定向到该对话框窗口（响应字段 `target_hwnd` 为实际目标）；对话框关闭后自动恢复。
 - 语义动作仍以绑定的窗口为目标：需要操作原生对话框时，应先用 `desktop_targets_list`
   找到对话框窗口并显式绑定（类 `#32770`），或在 `delivery_mode=background` 下执行。
+- `desktop_image_crop` 的 `image_path` 输入受允许图像根约束（与 perceive/find_image 一致）；
+  使用 `image_path` 的裁剪不会登记新 capture（无屏幕坐标映射），需要链式点击/OCR 时请用
+  `capture_id` 作为来源。
+- `desktop_document_save` 为最小 OOXML 实现：标题/小节/正文/PNG 图片/图注；暂不支持表格、
+  样式模板、页眉页脚；所有图片统一转 PNG 内嵌，大图按 15cm 默认宽度等比缩放。
 - 自定义截图路径不受沙箱限制，调用方负责路径与覆盖策略。
 - 会话关闭只清理 `%TEMP%` 下的会话截图；默认 `%LOCALAPPDATA%\deskctl\captures`
   视为持久产物，不随会话关闭删除。

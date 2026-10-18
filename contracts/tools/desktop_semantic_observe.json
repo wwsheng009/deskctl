@@ -1,6 +1,6 @@
 {
   "name": "desktop_semantic_observe",
-  "description": "Read the Windows UIA tree and candidate actions for a bound target.",
+  "description": "Read the Windows UIA tree and candidate actions for a bound target; tree_cursor continues the native tree page, delivery_mode becomes the default for later actions.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -33,6 +33,19 @@
           "candidates",
           "regions"
         ]
+      },
+      "tree_cursor": {
+        "type": "string",
+        "description": "Continue reading the native UIA tree from next_tree_cursor without re-capturing"
+      },
+      "delivery_mode": {
+        "type": "string",
+        "enum": [
+          "foreground",
+          "auto",
+          "background"
+        ],
+        "default": "auto"
       }
     },
     "required": [],

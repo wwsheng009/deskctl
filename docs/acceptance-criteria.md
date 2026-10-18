@@ -26,8 +26,8 @@
 
 ### AC-SCOPE-002 工具范围
 
-- 默认 `standard` profile 暴露 26 个核心工具。
-- `full` profile 暴露 28 个工具。
+- 默认 `standard` profile 暴露 28 个核心工具。
+- `full` profile 暴露 30 个工具。
 - 只有 `desktop_*`，不出现 `browser_*`、`workflow_*`、`agent_*` 工具。
 - `desktop_vision` 和 `desktop_agent_step` 仅在对应可选功能启用时出现。
 
@@ -157,6 +157,15 @@
 | AC-SEM-019 | 前台还原 | `restore_foreground=true` 时语义动作结束后尽力还原动作前的前台窗口，结果字段如实返回（受前台锁影响允许失败） |
 | AC-SEM-020 | 对话框自动跟随 | `semantic_observe`/`semantic_action` 在目标窗口被模态弹窗禁用时自动跟随其活动弹窗（响应报告 `redirected_from`），弹窗关闭后自动恢复原目标 |
 | AC-MOUSE-011 | 遮挡保护 | 携带 `hwnd`/capture 引用的点击在目标点被其它进程窗口遮挡时返回 `target_unavailable` + `occluded_by`，不误点；`allow_occluded=true` 可强制 |
+
+### 3.9 图像处理与文档
+
+| 编号 | 验收项 | 通过标准 |
+|---|---|---|
+| AC-IMG-001 | 图像裁剪 | `desktop_image_crop` 以 `capture_id` 或允许目录内的 `image_path` 为源，按区域裁剪；越界返回 `invalid_params` 并附源图尺寸；输出遵循截图编码策略（`format`/`quality`/`max_*`） |
+| AC-IMG-002 | 裁剪链 | `capture_id` 来源的裁剪结果登记为新 capture（`capture_id` 非空），元素坐标映射按区域平移保持，可继续用于点击/OCR/二次裁剪 |
+| AC-DOC-001 | Word 文档 | `desktop_document_save` 生成可被 Word/WPS/LibreOffice 打开的 `.docx`（标题、小节、正文、内嵌图片与图注）；缺省输出到 data 目录 |
+| AC-DOC-002 | 后台执行 | 截图 → 裁剪 → 文档汇总全流程不要求前台、不抢焦点（执行前后前台窗口保持不变） |
 
 ## 4. 多会话与状态验收
 

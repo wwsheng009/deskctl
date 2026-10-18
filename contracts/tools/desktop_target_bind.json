@@ -1,6 +1,6 @@
 {
   "name": "desktop_target_bind",
-  "description": "Bind a target application or window and return a target token.",
+  "description": "Bind a running window, or launch a catalogued local app and bind its window, returning a target token.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -18,6 +18,11 @@
           "background"
         ],
         "default": "foreground"
+      },
+      "follow_dialog": {
+        "type": "boolean",
+        "default": false,
+        "description": "When the selected window is disabled by a modal dialog (native Save/Open), bind that dialog instead"
       }
     },
     "required": [

@@ -21,6 +21,7 @@ hex.workspace = true
 xcap.workspace = true
 ort.workspace = true
 ndarray.workspace = true
+zip = { version = "2.6", default-features = false, features = ["deflate"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.56", features = [

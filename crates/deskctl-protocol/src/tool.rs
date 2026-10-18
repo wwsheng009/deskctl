@@ -58,6 +58,8 @@ pub enum ToolName {
     WindowMove,
     WindowResize,
     WindowInfo,
+    ImageCrop,
+    DocumentSave,
     Vision,
     Perceive,
     FindImage,
@@ -90,7 +92,7 @@ pub struct ToolMeta {
 }
 
 impl ToolName {
-    pub const ALL: [ToolName; 28] = [
+    pub const ALL: [ToolName; 30] = [
         Self::Mouse,
         Self::MouseDrag,
         Self::Input,
@@ -102,6 +104,8 @@ impl ToolName {
         Self::WindowMove,
         Self::WindowResize,
         Self::WindowInfo,
+        Self::ImageCrop,
+        Self::DocumentSave,
         Self::Vision,
         Self::Perceive,
         Self::FindImage,
@@ -210,6 +214,22 @@ impl ToolName {
             Self::WindowInfo => meta(
                 "desktop_window_info",
                 "Read detailed window bounds and process information.",
+                RiskClass::ReadOnly,
+                true,
+                false,
+                false,
+            ),
+            Self::ImageCrop => meta(
+                "desktop_image_crop",
+                "Crop a region from a recorded capture or an allowed image and save it; capture sources stay chainable.",
+                RiskClass::ReadOnly,
+                true,
+                false,
+                false,
+            ),
+            Self::DocumentSave => meta(
+                "desktop_document_save",
+                "Build a .docx report from captured images and text sections; pure local file work, background friendly.",
                 RiskClass::ReadOnly,
                 true,
                 false,
@@ -376,6 +396,8 @@ impl ToolName {
                             | Self::WindowScreenshot
                             | Self::WindowsList
                             | Self::WindowInfo
+                            | Self::ImageCrop
+                            | Self::DocumentSave
                             | Self::Vision
                             | Self::Perceive
                             | Self::FindImage

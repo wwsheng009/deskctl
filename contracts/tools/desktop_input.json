@@ -57,11 +57,15 @@
             "enum": [
               "invoke",
               "toggle",
+              "set_checked",
               "select",
               "expand",
               "collapse",
               "focus",
-              "set_value"
+              "set_value",
+              "scroll",
+              "scroll_into_view",
+              "set_range_value"
             ]
           },
           "ordinal_hint": {
@@ -77,6 +81,10 @@
       },
       "hwnd": {
         "type": "integer"
+      },
+      "launch_ref": {
+        "type": "string",
+        "description": "Optional app_ref from desktop_targets_list; relaunches the app when the target window is missing"
       },
       "text": {
         "type": "string",
