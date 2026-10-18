@@ -66,7 +66,22 @@ fn observe(session: &Session, args: &Value) -> Result<ToolExecution, ToolError> 
         .transpose()?
         .map(str::to_string);
 
-    let (hwnd, title, target_token) = resolve_target(session, args)?;
+    let (mut hwnd, mut title, target_token) = resolve_target(session, args)?;
+    // 目标窗口被模态弹窗禁用时自动跟随（如原生 Save/Open 对话框）。
+    let redirected_from = {
+        let effective = platform::active_input_window(hwnd)?;
+        if effective != hwnd {
+            let from = hwnd;
+            hwnd = effective;
+            title = platform::window_info(hwnd)?["title"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string();
+            Some(from)
+        } else {
+            None
+        }
+    };
     let native_nodes = platform::observe_window(hwnd, TREE_NODE_LIMIT)?;
     let mut nodes = Vec::with_capacity(native_nodes.len());
     let mut candidates = HashMap::new();
@@ -86,6 +101,7 @@ fn observe(session: &Session, args: &Value) -> Result<ToolExecution, ToolError> 
         candidates,
         nodes,
         preferred_delivery,
+        redirected_from,
     };
     let page = observation_page(&observation, 0, 0)?;
     session.store_observation(observation)?;
@@ -208,6 +224,8 @@ fn execute_action(session: &Session, args: &Value) -> Result<ToolExecution, Tool
         },
         None => resolve_locator_window(session, locator)?,
     };
+    // 目标被模态弹窗禁用时跟随其活动弹窗，保证动作落在当前真实 UI 上。
+    let hwnd = platform::active_input_window(hwnd)?;
     let nodes = platform::observe_window(hwnd, 500)?;
     let matches: Vec<_> = nodes
         .iter()
@@ -656,6 +674,7 @@ fn observation_page(
         "observation_token": observation.token,
         "target_token": observation.target_token,
         "window": { "hwnd": observation.hwnd, "title": observation.title },
+        "redirected_from": observation.redirected_from,
         "nodes": nodes,
         "tree_count": tree_total,
         "next_tree_cursor": (tree_end < tree_total).then(|| format!("t:{tree_end}")),

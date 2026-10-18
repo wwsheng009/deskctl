@@ -1021,6 +1021,11 @@ fn target_bind(session: &Session, args: &Value) -> Result<ToolExecution, ToolErr
         ));
     }
     let mut launched_pid: Option<u32> = None;
+    let follow_dialog = args
+        .get("follow_dialog")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let mut picked_dialog_parent: Option<i64> = None;
     let selected = if let Some(entry) = crate::apps::find(app_ref) {
         // 本地应用目录引用：运行中则绑定窗口，未运行则受限启动后绑定。
         resolve_catalog_target(entry, window_ref, &mut launched_pid)?
@@ -1053,35 +1058,58 @@ fn target_bind(session: &Session, args: &Value) -> Result<ToolExecution, ToolErr
                     .retryable(true)
                 })?
         } else {
-            match matching.as_slice() {
-                [one] => one.clone(),
-                [] => {
-                    return Err(ToolError::new(
-                        ErrorCode::TargetUnavailable,
-                        "no running window matches app_ref; use an app_ref from the local app catalog to launch it",
-                    )
-                    .retryable(true))
+            let dialog_pick = if follow_dialog {
+                pick_active_dialog(&matching)
+            } else {
+                None
+            };
+            match dialog_pick {
+                Some((dialog, owner)) => {
+                    picked_dialog_parent = Some(owner);
+                    dialog
                 }
-                _ => {
-                    return Err(ToolError::new(
-                        ErrorCode::TargetUnavailable,
-                        "app_ref has multiple windows; select one explicitly with window_ref",
-                    )
-                    .details(json!({
-                        "windows": matching.iter().map(|window| json!({
-                            "window_ref": format!("win:{}", window["hwnd"].as_i64().unwrap_or_default()),
-                            "title": window["title"]
-                        })).collect::<Vec<_>>()
-                    }))
-                    .retryable(true))
-                }
+                None => match matching.as_slice() {
+                    [one] => one.clone(),
+                    [] => {
+                        return Err(ToolError::new(
+                            ErrorCode::TargetUnavailable,
+                            "no running window matches app_ref; use an app_ref from the local app catalog to launch it",
+                        )
+                        .retryable(true))
+                    }
+                    _ => {
+                        return Err(ToolError::new(
+                            ErrorCode::TargetUnavailable,
+                            "app_ref has multiple windows; select one explicitly with window_ref",
+                        )
+                        .details(json!({
+                            "windows": matching.iter().map(|window| json!({
+                                "window_ref": format!("win:{}", window["hwnd"].as_i64().unwrap_or_default()),
+                                "title": window["title"]
+                            })).collect::<Vec<_>>()
+                        }))
+                        .retryable(true))
+                    }
+                },
             }
         }
     };
-    let hwnd = selected["hwnd"]
+    let mut hwnd = selected["hwnd"]
         .as_i64()
         .ok_or_else(|| invalid("selected window has no hwnd"))?;
-    let title = selected["title"].as_str().unwrap_or_default().to_string();
+    // follow_dialog：目标被模态对话框禁用时绑定该对话框（含显式 window_ref 的情况）。
+    let mut parent_hwnd: Option<i64> = picked_dialog_parent;
+    if follow_dialog {
+        let effective = platform::active_input_window(hwnd)?;
+        if effective != hwnd {
+            parent_hwnd = Some(hwnd);
+            hwnd = effective;
+        }
+    }
+    let title = platform::window_info(hwnd)?["title"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
     let foreground = if delivery_mode == "background" {
         platform::window_info(hwnd)?["foreground"].as_bool() == Some(true)
     } else {
@@ -1113,7 +1141,9 @@ fn target_bind(session: &Session, args: &Value) -> Result<ToolExecution, ToolErr
             "foreground": foreground,
             "delivery_mode": delivery_mode,
             "launched": launched_pid.is_some(),
-            "pid": launched_pid
+            "pid": launched_pid,
+            "followed_dialog": parent_hwnd.is_some(),
+            "parent_hwnd": parent_hwnd
         }),
         DispatchState::Sent,
     ))
@@ -1194,6 +1224,29 @@ fn window_matches_entry(window: &Value, entry: &crate::apps::AppEntry) -> bool {
     window["title"]
         .as_str()
         .is_some_and(|title| title.to_lowercase().contains(&entry.name.to_lowercase()))
+}
+
+/// 在候选窗口中找出"被模态对话框禁用的窗口"的活动弹窗（弹窗必须也在候选中，
+/// 即属于同一进程），用于 follow_dialog 场景。返回 (弹窗行, 被禁用的所有者 hwnd)。
+fn pick_active_dialog(candidates: &[Value]) -> Option<(Value, i64)> {
+    for window in candidates {
+        let Some(hwnd) = window["hwnd"].as_i64() else {
+            continue;
+        };
+        let Ok(effective) = platform::active_input_window(hwnd) else {
+            continue;
+        };
+        if effective == hwnd {
+            continue;
+        }
+        if let Some(row) = candidates
+            .iter()
+            .find(|row| row["hwnd"].as_i64() == Some(effective))
+        {
+            return Some((row.clone(), hwnd));
+        }
+    }
+    None
 }
 
 fn store_capture(

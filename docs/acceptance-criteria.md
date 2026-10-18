@@ -64,6 +64,7 @@
 | AC-WIN-004 | 窗口缩放 | 缩放后 `window_info` 尺寸发生变化 |
 | AC-WIN-005 | 无效句柄 | 返回 `target_unavailable` 或等价结构化错误 |
 | AC-WIN-006 | 多窗口选择 | 同名窗口不被错误猜测，必须显式选择 |
+| AC-WIN-007 | 对话框跟随绑定 | `target_bind follow_dialog=true` 时，若目标窗口被模态弹窗禁用则绑定该弹窗，响应 `followed_dialog=true` 与 `parent_hwnd`；多窗口场景优先选择活动弹窗 |
 
 ### 3.3 鼠标
 
@@ -154,6 +155,7 @@
 | AC-SEM-017 | 受限启动 | `app_ref` 只能来自本地快捷方式目录（Start Menu/桌面）生成的 catalog 引用；`target_bind` 对未运行的应用可启动并等待窗口（≤10s）后绑定；`desktop_input`/`desktop_semantic_action` 支持 `launch_ref` 重启缺失窗口；拒绝任意可执行路径/脚本 |
 | AC-SEM-018 | 投递模式 | 语义动作 `delivery_mode` 默认 `auto`：优先后台执行、必要时回退前台且不重复派发；`background` 不抢前台，失败即返回结构化错误；`foreground` 仍可显式要求 |
 | AC-SEM-019 | 前台还原 | `restore_foreground=true` 时语义动作结束后尽力还原动作前的前台窗口，结果字段如实返回（受前台锁影响允许失败） |
+| AC-SEM-020 | 对话框自动跟随 | `semantic_observe`/`semantic_action` 在目标窗口被模态弹窗禁用时自动跟随其活动弹窗（响应报告 `redirected_from`），弹窗关闭后自动恢复原目标 |
 | AC-MOUSE-011 | 遮挡保护 | 携带 `hwnd`/capture 引用的点击在目标点被其它进程窗口遮挡时返回 `target_unavailable` + `occluded_by`，不误点；`allow_occluded=true` 可强制 |
 
 ## 4. 多会话与状态验收

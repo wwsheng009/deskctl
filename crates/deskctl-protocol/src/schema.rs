@@ -244,7 +244,8 @@ pub fn input_schema(name: ToolName) -> Value {
             json!({
                 "app_ref": { "type": "string" },
                 "window_ref": { "type": "string" },
-                "delivery_mode": { "type": "string", "enum": ["foreground","auto","background"], "default": "foreground" }
+                "delivery_mode": { "type": "string", "enum": ["foreground","auto","background"], "default": "foreground" },
+                "follow_dialog": { "type": "boolean", "default": false, "description": "When the selected window is disabled by a modal dialog (native Save/Open), bind that dialog instead" }
             }),
             &["app_ref"],
         ),

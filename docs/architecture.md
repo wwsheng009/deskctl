@@ -754,6 +754,7 @@ pub trait SemanticBackend {
 | 鼠标点击/拖拽 | 可见即可，且需未被遮挡 | 合成输入落在屏幕坐标最上层窗口；携带 `hwnd` 或 capture 引用时强制置前并做遮挡检测（`allow_occluded=true` 跳过） |
 | 键盘输入/快捷键 | 必须前台 | `SendInput` 只进焦点窗口；deskctl 先激活目标或返回结构化错误 |
 | `restore_foreground=true` | — | 语义动作结束后尽力还原动作前的前台窗口（受前台锁影响可能失败，结果如实返回） |
+| 模态弹窗跟随 | — | 目标窗口被禁用时：`target_bind follow_dialog=true` 绑定活动弹窗（响应 `parent_hwnd`）；`desktop_input` 输入重定向并返回 `target_hwnd`；`semantic_observe`/`semantic_action` 自动跟随并报告 `redirected_from` |
 
 ## 12. 代码组织
 

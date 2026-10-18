@@ -66,6 +66,10 @@
 - 模态弹窗输入重定向（AC-INPUT-008）：VS Code 全链路实测——catalog 受限启动 → Ctrl+N 新建
   → 输入测试文本 → Ctrl+S 打开原生 Save As（输入 `target_hwnd` 自动重定向到对话框）→
   覆盖确认（UIA invoke 是(Y)）→ 文件落盘内容完全一致（exact_match=true，52 bytes）
+- 对话框跟随产品化（AC-WIN-007/AC-SEM-020）：VS Code Ctrl+O 打开原生 Open File 后——
+  `semantic_observe`（主窗口 token）自动跟随：window=[Open File]、`redirected_from`=主窗口；
+  `target_bind follow_dialog=true` 返回 `followed_dialog=true`、`parent_hwnd`=主窗口、
+  hwnd=对话框；Escape 同样被重定向并关闭对话框
 
 ## 3. 测试状态
 
@@ -171,6 +175,8 @@ pwsh scripts/fetch-models.ps1
   双向语义+稳定采样+unsatisfied 不冒充成功、tree_cursor 两页续读无重叠、catalog 受限启动
   并绑定/关闭、delivery_mode 后台优先+前台回退、restore_foreground 还原、点击遮挡阻断/强制）
 - AC-INPUT-008（真机 smoke：VS Code 新建/输入/保存全链路，保存与覆盖确认对话框输入重定向）
+- AC-WIN-007/AC-SEM-020（真机 smoke：Open File 对话框观察自动跟随、follow_dialog 绑定、
+  Escape 重定向关闭）
 - AC-PER-003（OCR/YOLO 合并去重 smoke）
 - AC-SESS-001/002/004/005/006
 - AC-SESS-003/009（安全脚本实测：8 并发输入串行、0 失败、p50=708ms/max=1129ms 无饥饿）

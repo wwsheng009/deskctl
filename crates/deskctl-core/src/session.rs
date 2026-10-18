@@ -105,6 +105,8 @@ pub struct ObservationState {
     /// delivery preference recorded at observe time; executing tools default to
     /// this mode when the call does not pass its own `delivery_mode`.
     pub preferred_delivery: Option<String>,
+    /// 目标窗口被模态弹窗禁用时自动跟随的来源窗口（原 hwnd）。
+    pub redirected_from: Option<i64>,
 }
 
 pub struct Session {

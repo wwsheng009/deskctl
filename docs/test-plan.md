@@ -272,6 +272,20 @@ session A/B 同时输入 -> 输入不交叉
 创建 session/token -> 重启 daemon -> 旧 token 失效 -> 客户端重新观察
 ```
 
+### E2E-009 VS Code 新建/输入/保存（含对话框跟随）
+
+```text
+targets_list("visual studio code") -> target_bind（受限启动）-> Ctrl+N 新建未命名文件
+-> 输入测试文本（send=none）-> Ctrl+S 打开原生 Save As
+-> 用主窗口 hwnd 输入绝对路径：响应 target_hwnd=对话框 hwnd（自动重定向）
+-> 覆盖确认弹窗：绑定对话框 -> set_value(文件名) -> invoke 保存/是(Y)
+-> 读回磁盘：内容与输入完全一致；弹窗关闭后主窗口自动恢复
+```
+
+通过标准：文件内容 exact match；全程无焦点丢失；`desktop_semantic_observe`（被禁用窗口的
+target token）返回 `redirected_from` 且 window.title 为对话框；`target_bind follow_dialog=true`
+返回 `followed_dialog=true` 与 `parent_hwnd`。
+
 ## 9. 并发与压力测试
 
 - 2/4/8 个 session 同时截图
