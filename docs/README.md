@@ -23,6 +23,7 @@
 | [mcp-service.md](mcp-service.md) | MCP server、tools、prompts、取消、进度、错误映射 |
 | [llm-skills.md](llm-skills.md) | LLM Skill 定义、工具选择、失败恢复、评估 |
 | [extensibility.md](extensibility.md) | 新工具/平台/传输/provider/skill 的扩展机制 |
+| [design/README.md](design/README.md) | 运维增强方案总览：审计历史、Agent 身份、录制回放、检查点补偿 |
 
 ## 覆盖矩阵
 
