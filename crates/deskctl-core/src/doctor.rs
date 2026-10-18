@@ -1,6 +1,6 @@
 use crate::config;
 use serde_json::{json, Value};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 const OCR_MODELS: &[&str] = &[
     "ch_PP-OCRv4_det.onnx",
@@ -18,6 +18,19 @@ fn file_check(dir: Option<&Path>, name: &str) -> Value {
     })
 }
 
+/// Check a file across several candidate directories, mirroring the search
+/// order used when the runtime is actually loaded (exe dir, then models dir).
+fn file_check_multi(dirs: &[Option<&Path>], name: &str) -> Value {
+    let candidates: Vec<PathBuf> = dirs.iter().flatten().map(|dir| dir.join(name)).collect();
+    let found = candidates.iter().find(|path| path.is_file());
+    let path = found.or_else(|| candidates.first());
+    json!({
+        "name": name,
+        "path": path.map(|p| p.display().to_string()),
+        "present": found.is_some(),
+    })
+}
+
 pub fn report() -> Value {
     let models = config::models_dir();
     let model_dir = models.as_deref();
@@ -30,14 +43,16 @@ pub fn report() -> Value {
     let exe_dir = std::env::current_exe()
         .ok()
         .and_then(|path| path.parent().map(Path::to_path_buf));
+    let runtime_dirs = [exe_dir.as_deref(), model_dir];
     let onnx_runtime = [
         "onnxruntime.dll",
         "libonnxruntime.so",
         "libonnxruntime.dylib",
     ]
     .iter()
-    .map(|name| file_check(exe_dir.as_deref(), name))
+    .map(|name| file_check_multi(&runtime_dirs, name))
     .collect::<Vec<_>>();
+    let runtime_resolved = config::onnx_runtime_path();
 
     json!({
         "ok": true,
@@ -64,6 +79,12 @@ pub fn report() -> Value {
         },
         "onnx_runtime": {
             "search_dir": exe_dir.as_ref().map(|p| p.display().to_string()),
+            "search_dirs": runtime_dirs
+                .iter()
+                .flatten()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>(),
+            "resolved": runtime_resolved.as_ref().map(|p| p.display().to_string()),
             "files": onnx_runtime,
         },
     })

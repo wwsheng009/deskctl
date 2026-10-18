@@ -26,6 +26,8 @@ fn doctor_returns_structured_json() {
     assert_eq!(report["platform"]["supported_first_phase"], true);
     assert!(report["models"].is_object());
     assert!(report["onnx_runtime"].is_object());
+    assert!(report["onnx_runtime"]["search_dirs"].is_array());
+    assert!(report["onnx_runtime"].get("resolved").is_some());
 }
 
 #[test]
