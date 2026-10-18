@@ -1,0 +1,35 @@
+{
+  "name": "desktop_target_bind",
+  "description": "Bind a target application or window and return a target token.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "app_ref": {
+        "type": "string"
+      },
+      "window_ref": {
+        "type": "string"
+      },
+      "delivery_mode": {
+        "type": "string",
+        "enum": [
+          "foreground",
+          "auto",
+          "background"
+        ],
+        "default": "foreground"
+      }
+    },
+    "required": [
+      "app_ref"
+    ],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_target_bind",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false
+  }
+}

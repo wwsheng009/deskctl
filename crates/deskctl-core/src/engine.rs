@@ -139,15 +139,17 @@ impl Engine {
         })?;
         if let Some(token) = token {
             if token != session.token {
-                return Err(ToolError::new(
-                    ErrorCode::AuthRequired,
-                    "session token is not valid",
-                )
-                .retryable(false));
+                return Err(
+                    ToolError::new(ErrorCode::AuthRequired, "session token is not valid")
+                        .retryable(false),
+                );
             }
         }
         if session.is_closed() {
-            return Err(ToolError::new(ErrorCode::ServerRestarted, "session is closed"));
+            return Err(ToolError::new(
+                ErrorCode::ServerRestarted,
+                "session is closed",
+            ));
         }
         Ok(session)
     }
@@ -281,7 +283,10 @@ impl Engine {
                 &session,
                 tool,
                 request_id,
-                Err(ToolError::new(ErrorCode::Cancelled, "request was cancelled")),
+                Err(ToolError::new(
+                    ErrorCode::Cancelled,
+                    "request was cancelled",
+                )),
             );
         }
         if !session.allows(tool) {
@@ -387,16 +392,13 @@ fn result_for_session(
                 .details
                 .get("dispatch_state")
                 .and_then(|value| serde_json::from_value(value.clone()).ok())
-                .unwrap_or_else(|| match error.code {
+                .unwrap_or(match error.code {
                     ErrorCode::DispatchUnknown => DispatchState::Unknown,
                     _ => DispatchState::NotSent,
                 });
             let retryable = error.retryable && dispatch_state.is_retry_safe();
             ToolResult::failure(
-                ToolError {
-                    retryable,
-                    ..error
-                },
+                ToolError { retryable, ..error },
                 ResultMeta {
                     dispatch_state,
                     retryable,
@@ -418,10 +420,7 @@ fn failure_meta(tool: ToolName, request_id: Option<String>, error: ToolError) ->
     };
     let retryable = error.retryable && dispatch_state.is_retry_safe();
     ToolResult::failure(
-        ToolError {
-            retryable,
-            ..error
-        },
+        ToolError { retryable, ..error },
         ResultMeta {
             tool: Some(tool.as_str().to_string()),
             request_id,
@@ -443,4 +442,3 @@ fn failure_meta(tool: ToolName, request_id: Option<String>, error: ToolError) ->
         },
     )
 }
-

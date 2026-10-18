@@ -10,6 +10,6 @@ pub mod session;
 pub mod tools;
 pub mod vision;
 
-pub use engine::{CancelFlag, Engine, SessionInfo};
 pub use config::Config;
+pub use engine::{CancelFlag, Engine, SessionInfo};
 pub use session::Session;

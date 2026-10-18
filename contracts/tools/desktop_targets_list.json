@@ -1,0 +1,25 @@
+{
+  "name": "desktop_targets_list",
+  "description": "List running windows and local application targets.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string"
+      },
+      "cursor": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "required": [],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_targets_list",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

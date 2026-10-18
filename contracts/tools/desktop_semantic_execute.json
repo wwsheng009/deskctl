@@ -1,0 +1,40 @@
+{
+  "name": "desktop_semantic_execute",
+  "description": "Execute an observation-bound semantic candidate.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "observation_token": {
+        "type": "string"
+      },
+      "candidate_id": {
+        "type": "string"
+      },
+      "value": {
+        "type": "string",
+        "maxLength": 16384
+      },
+      "delivery_mode": {
+        "type": "string",
+        "enum": [
+          "foreground",
+          "auto",
+          "background"
+        ],
+        "default": "foreground"
+      }
+    },
+    "required": [
+      "observation_token",
+      "candidate_id"
+    ],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_semantic_execute",
+    "readOnlyHint": false,
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false
+  }
+}

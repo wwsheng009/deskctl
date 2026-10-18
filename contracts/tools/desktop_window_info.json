@@ -1,0 +1,23 @@
+{
+  "name": "desktop_window_info",
+  "description": "Read detailed window bounds and process information.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "hwnd": {
+        "type": "integer"
+      }
+    },
+    "required": [
+      "hwnd"
+    ],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_window_info",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

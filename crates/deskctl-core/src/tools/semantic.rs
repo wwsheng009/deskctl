@@ -7,9 +7,7 @@ use uuid::Uuid;
 
 use crate::engine::Engine;
 use crate::platform::{self, UiaAction};
-use crate::session::{
-    Candidate, ObservationState, SemanticActionKind, Session,
-};
+use crate::session::{Candidate, ObservationState, SemanticActionKind, Session};
 
 use super::ToolExecution;
 
@@ -47,17 +45,13 @@ fn observe(session: &Session, args: &Value) -> Result<ToolExecution, ToolError> 
         .filter(|_| page_cursor > 0);
     if let Some(token) = existing_token {
         let observation = session.observation(token)?;
-        return Ok(ToolExecution::read(observation_page(&observation, page_cursor)?));
+        return Ok(ToolExecution::read(observation_page(
+            &observation,
+            page_cursor,
+        )?));
     }
 
     let (hwnd, title, target_token) = resolve_target(session, args)?;
-    if platform::foreground_hwnd()?.is_some_and(|foreground| foreground != hwnd) {
-        return Err(ToolError::new(
-            ErrorCode::TargetUnavailable,
-            "bound target is not the foreground window; activate it before observing",
-        )
-        .retryable(true));
-    }
     let limit = 200usize;
     let native_nodes = platform::observe_window(hwnd, limit)?;
     let mut nodes = Vec::with_capacity(native_nodes.len());
@@ -129,16 +123,13 @@ fn execute_candidate(session: &Session, args: &Value) -> Result<ToolExecution, T
             .retryable(true)
         })?;
     let hwnd = observation.hwnd.ok_or_else(|| {
-        ToolError::new(ErrorCode::StaleObservation, "observation has no bound window")
-            .retryable(true)
-    })?;
-    if platform::foreground_hwnd()? != Some(hwnd) {
-        return Err(ToolError::new(
+        ToolError::new(
             ErrorCode::StaleObservation,
-            "foreground window changed before semantic execution; re-bind and observe",
+            "observation has no bound window",
         )
-        .retryable(true));
-    }
+        .retryable(true)
+    })?;
+    ensure_foreground(hwnd)?;
     let fresh = platform::observe_window(hwnd, 500)?;
     let node = fresh
         .iter()
@@ -189,6 +180,7 @@ fn execute_action(session: &Session, args: &Value) -> Result<ToolExecution, Tool
         .ok_or_else(|| super::invalid("action is required"))?;
     let action = parse_action(action)?;
     let hwnd = resolve_locator_window(session, locator)?;
+    ensure_foreground(hwnd)?;
     let nodes = platform::observe_window(hwnd, 500)?;
     let matches: Vec<_> = nodes
         .iter()
@@ -250,30 +242,55 @@ fn verify_state(session: &Session, args: &Value) -> Result<ToolExecution, ToolEr
         .collect();
     let status = match condition {
         "exists" | "window_exists" => {
-            if matching.is_empty() { "unsatisfied" } else { "satisfied" }
+            if matching.is_empty() {
+                "unsatisfied"
+            } else {
+                "satisfied"
+            }
         }
         "absent" | "window_absent" => {
-            if matching.is_empty() { "satisfied" } else { "unsatisfied" }
+            if matching.is_empty() {
+                "satisfied"
+            } else {
+                "unsatisfied"
+            }
         }
         "focused" => matching
             .first()
             .and_then(|node| node["focused"].as_bool())
-            .map_or("unknown", |value| if value { "satisfied" } else { "unsatisfied" }),
+            .map_or(
+                "unknown",
+                |value| if value { "satisfied" } else { "unsatisfied" },
+            ),
         "checked" => matching
             .first()
             .and_then(|node| node["toggled"].as_bool())
-            .map_or("unknown", |value| if value { "satisfied" } else { "unsatisfied" }),
+            .map_or(
+                "unknown",
+                |value| if value { "satisfied" } else { "unsatisfied" },
+            ),
         "selected" => matching
             .first()
             .and_then(|node| node["selected"].as_bool())
-            .map_or("unknown", |value| if value { "satisfied" } else { "unsatisfied" }),
+            .map_or(
+                "unknown",
+                |value| if value { "satisfied" } else { "unsatisfied" },
+            ),
         "expanded" => matching
             .first()
             .and_then(|node| node["expanded"].as_bool())
-            .map_or("unknown", |value| if value { "satisfied" } else { "unsatisfied" }),
+            .map_or(
+                "unknown",
+                |value| if value { "satisfied" } else { "unsatisfied" },
+            ),
         "value_equals" => {
             let expected = expectation.get("value").and_then(Value::as_str);
-            match (matching.first().and_then(|node| node["short_value"].as_str()), expected) {
+            match (
+                matching
+                    .first()
+                    .and_then(|node| node["short_value"].as_str()),
+                expected,
+            ) {
                 (Some(actual), Some(expected)) if actual == expected => "satisfied",
                 (Some(_), Some(_)) => "unsatisfied",
                 _ => "unknown",
@@ -293,10 +310,7 @@ fn verify_state(session: &Session, args: &Value) -> Result<ToolExecution, ToolEr
     })))
 }
 
-fn observation_page(
-    observation: &ObservationState,
-    cursor: usize,
-) -> Result<Value, ToolError> {
+fn observation_page(observation: &ObservationState, cursor: usize) -> Result<Value, ToolError> {
     let mut candidates: Vec<&Candidate> = observation.candidates.values().collect();
     candidates.sort_by_key(|candidate| candidate.id.clone());
     let total = candidates.len();
@@ -328,11 +342,7 @@ fn observation_page(
     }))
 }
 
-fn candidate_for_node(
-    node: &Value,
-    target_token: Option<&str>,
-    title: &str,
-) -> Option<Candidate> {
+fn candidate_for_node(node: &Value, target_token: Option<&str>, title: &str) -> Option<Candidate> {
     let opaque_id = node.get("opaque_id")?.as_str()?.to_string();
     let role = node.get("role")?.as_str()?.to_string();
     let name = node.get("name").and_then(Value::as_str).map(str::to_string);
@@ -345,10 +355,6 @@ fn candidate_for_node(
         .iter()
         .filter_map(Value::as_str)
         .find_map(|action| parse_action(action).ok())?;
-    let dom_id = node
-        .get("dom_id")
-        .and_then(Value::as_str)
-        .map(str::to_string);
     let risk = match action {
         SemanticActionKind::Invoke | SemanticActionKind::Select => RiskClass::ExternalCommit,
         _ => RiskClass::BoundedWrite,
@@ -375,7 +381,6 @@ fn candidate_for_node(
             "role": role,
             "automation_id": automation_id,
             "accessible_name": name,
-            "dom_id": dom_id,
             "supported_action": action.as_str()
         }),
     })
@@ -449,11 +454,6 @@ fn locator_matches(node: &Value, locator: &Value) -> bool {
             return false;
         }
     }
-    if let Some(dom_id) = locator.get("dom_id").and_then(Value::as_str) {
-        if node["dom_id"].as_str() != Some(dom_id) {
-            return false;
-        }
-    }
     true
 }
 
@@ -466,7 +466,9 @@ fn parse_action(value: &str) -> Result<SemanticActionKind, ToolError> {
         "collapse" => Ok(SemanticActionKind::Collapse),
         "focus" => Ok(SemanticActionKind::Focus),
         "set_value" => Ok(SemanticActionKind::SetValue),
-        _ => Err(super::invalid(format!("unsupported semantic action: {value}"))),
+        _ => Err(super::invalid(format!(
+            "unsupported semantic action: {value}"
+        ))),
     }
 }
 
@@ -482,3 +484,15 @@ fn uia_action(action: SemanticActionKind) -> UiaAction {
     }
 }
 
+fn ensure_foreground(hwnd: i64) -> Result<(), ToolError> {
+    platform::window_info(hwnd)?;
+    if platform::foreground_hwnd()? == Some(hwnd) || platform::activate_window(hwnd)? {
+        Ok(())
+    } else {
+        Err(ToolError::new(
+            ErrorCode::TargetUnavailable,
+            "bound target could not be activated; semantic action was not sent",
+        )
+        .retryable(true))
+    }
+}

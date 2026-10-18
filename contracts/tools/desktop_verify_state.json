@@ -1,0 +1,121 @@
+{
+  "name": "desktop_verify_state",
+  "description": "Verify a semantic postcondition without repeating the action.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "expectation": {
+        "type": "object",
+        "properties": {
+          "locator": {
+            "type": "object",
+            "properties": {
+              "app_id": {
+                "type": "string"
+              },
+              "window_id": {
+                "type": "string"
+              },
+              "window_title": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "window",
+                  "button",
+                  "text_field",
+                  "check_box",
+                  "radio_button",
+                  "list",
+                  "list_item",
+                  "menu",
+                  "menu_item",
+                  "tab",
+                  "document",
+                  "other"
+                ]
+              },
+              "automation_id": {
+                "type": "string"
+              },
+              "accessible_name": {
+                "type": "string"
+              },
+              "ancestor_chain": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "supported_action": {
+                "type": "string",
+                "enum": [
+                  "invoke",
+                  "toggle",
+                  "select",
+                  "expand",
+                  "collapse",
+                  "focus",
+                  "set_value"
+                ]
+              },
+              "ordinal_hint": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 65535
+              }
+            },
+            "required": [
+              "app_id"
+            ],
+            "additionalProperties": false
+          },
+          "condition": {
+            "type": "string",
+            "enum": [
+              "exists",
+              "absent",
+              "window_exists",
+              "window_absent",
+              "focused",
+              "checked",
+              "selected",
+              "expanded",
+              "value_equals"
+            ]
+          },
+          "expected": {
+            "type": "boolean",
+            "default": true
+          },
+          "value": {
+            "type": "string"
+          },
+          "timeout_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 300000,
+            "default": 5000
+          }
+        },
+        "required": [
+          "locator",
+          "condition"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "expectation"
+    ],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_verify_state",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

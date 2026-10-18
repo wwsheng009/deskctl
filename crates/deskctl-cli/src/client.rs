@@ -81,8 +81,8 @@ pub async fn request(
     if line.trim().is_empty() {
         return Err("daemon closed the connection without a response".to_string());
     }
-    let response: Response =
-        serde_json::from_str(line.trim()).map_err(|error| format!("invalid daemon response: {error}"))?;
+    let response: Response = serde_json::from_str(line.trim())
+        .map_err(|error| format!("invalid daemon response: {error}"))?;
     if !response.ok {
         return Err(response
             .error

@@ -4,17 +4,13 @@ use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
-use deskctl_protocol::{
-    DispatchState, Effect, ErrorCode, ToolError, ToolName, Verification,
-};
+use deskctl_protocol::{DispatchState, Effect, ErrorCode, ToolError, ToolName, Verification};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::engine::{CancelFlag, Engine};
 use crate::platform;
-use crate::session::{
-    CaptureState, ElementLocation, ScreenRect, Session, TargetBinding,
-};
+use crate::session::{CaptureState, ElementLocation, ScreenRect, Session, TargetBinding};
 use crate::vision::locate;
 
 pub struct ToolExecution {
@@ -65,13 +61,18 @@ pub async fn execute(
     cancel: &CancelFlag,
 ) -> Result<ToolExecution, ToolError> {
     if cancel.load(Ordering::Acquire) {
-        return Err(ToolError::new(ErrorCode::Cancelled, "request was cancelled"));
+        return Err(ToolError::new(
+            ErrorCode::Cancelled,
+            "request was cancelled",
+        ));
     }
     match tool {
         ToolName::Screenshot => screenshot(engine, session, args),
         ToolName::ScreenSize => {
             let (width, height) = platform::screen_size()?;
-            Ok(ToolExecution::read(json!({ "width": width, "height": height })))
+            Ok(ToolExecution::read(
+                json!({ "width": width, "height": height }),
+            ))
         }
         ToolName::WindowsList => {
             let windows = platform::windows_list()?;
@@ -115,7 +116,11 @@ pub async fn execute(
     }
 }
 
-fn screenshot(engine: &Engine, session: &Session, args: &Value) -> Result<ToolExecution, ToolError> {
+fn screenshot(
+    engine: &Engine,
+    session: &Session,
+    args: &Value,
+) -> Result<ToolExecution, ToolError> {
     let capture = platform::capture_screen(optional_region(args))?;
     let path = platform::save_png(
         &capture.image,
@@ -238,7 +243,10 @@ fn mouse(session: &Session, args: &Value) -> Result<ToolExecution, ToolError> {
         let (x, y) = platform::mouse_position()?;
         return Ok(ToolExecution::read(json!({ "x": x, "y": y })));
     }
-    if !matches!(action, "click" | "double_click" | "hover" | "move" | "scroll") {
+    if !matches!(
+        action,
+        "click" | "double_click" | "hover" | "move" | "scroll"
+    ) {
         return Err(invalid("unknown mouse action"));
     }
     if let Some(hwnd) = optional_i64(args, "hwnd")? {
@@ -385,8 +393,7 @@ fn input(session: &Session, args: &Value) -> Result<ToolExecution, ToolError> {
         let refs: Vec<&str> = keys.iter().map(String::as_str).collect();
         platform::hotkey(&refs).map_err(|error| dispatch_error(error, DispatchState::Unknown))?;
     } else {
-        platform::type_text(text)
-            .map_err(|error| dispatch_error(error, DispatchState::Unknown))?;
+        platform::type_text(text).map_err(|error| dispatch_error(error, DispatchState::Unknown))?;
         if send != "none" {
             let result = match send {
                 "enter" => platform::hotkey(&["enter"]),
@@ -436,7 +443,10 @@ fn find_image(engine: &Engine, args: &Value) -> Result<ToolExecution, ToolError>
         .unwrap_or(0.9)
         .clamp(0.0, 1.0) as f32;
     let mut matches = Vec::new();
-    for template_path in templates.split('|').filter(|value| !value.trim().is_empty()) {
+    for template_path in templates
+        .split('|')
+        .filter(|value| !value.trim().is_empty())
+    {
         let path = Path::new(template_path.trim());
         if !engine.config().is_allowed_image_path(path) {
             return Err(ToolError::new(
@@ -644,13 +654,7 @@ async fn wait_for(args: &Value, cancel: &CancelFlag) -> Result<ToolExecution, To
                 }
             }
             "color" => color.is_some_and(|color| {
-                locate::find_color(
-                    &current.image,
-                    current.screen_rect,
-                    color,
-                    "left_top",
-                )
-                .is_some()
+                locate::find_color(&current.image, current.screen_rect, color, "left_top").is_some()
             }),
             _ => false,
         };
@@ -666,11 +670,7 @@ async fn wait_for(args: &Value, cancel: &CancelFlag) -> Result<ToolExecution, To
     }
 }
 
-fn perceive(
-    engine: &Engine,
-    session: &Session,
-    args: &Value,
-) -> Result<ToolExecution, ToolError> {
+fn perceive(engine: &Engine, session: &Session, args: &Value) -> Result<ToolExecution, ToolError> {
     let path = required_str(args, "image_path")?;
     let path = normalize_image_path(engine, path)?;
     let image = image::open(&path)
@@ -682,9 +682,7 @@ fn perceive(
         })?
         .to_rgba8();
     let existing_capture = session.find_capture_by_path(&path.to_string_lossy());
-    let screen_rect = existing_capture
-        .as_ref()
-        .map(|capture| capture.screen_rect);
+    let screen_rect = existing_capture.as_ref().map(|capture| capture.screen_rect);
     let mut elements = engine.vision().perceive(&image, screen_rect)?;
     elements.sort_by(|left, right| {
         left.rect
@@ -973,7 +971,9 @@ fn resolve_input_target(session: &Session, args: &Value) -> Result<Option<i64>, 
     };
     if let Some(window_id) = locator.get("window_id").and_then(Value::as_str) {
         if let Some(raw) = window_id.strip_prefix("hwnd:") {
-            let hwnd = raw.parse::<i64>().map_err(|_| invalid("window_id hwnd is invalid"))?;
+            let hwnd = raw
+                .parse::<i64>()
+                .map_err(|_| invalid("window_id hwnd is invalid"))?;
             platform::window_info(hwnd)?;
             return Ok(Some(hwnd));
         }
@@ -988,9 +988,10 @@ fn resolve_input_target(session: &Session, args: &Value) -> Result<Option<i64>, 
         )
         .retryable(true));
     }
-    let target_token = locator.get("app_id").and_then(Value::as_str).ok_or_else(|| {
-        invalid("target_locator requires app_id, window_id or window_title")
-    })?;
+    let target_token = locator
+        .get("app_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| invalid("target_locator requires app_id, window_id or window_title"))?;
     let binding = session.target(target_token)?;
     Ok(Some(binding.hwnd))
 }
@@ -1164,4 +1165,3 @@ fn required_u32(args: &Value, key: &str) -> Result<u32, ToolError> {
 fn invalid(message: impl Into<String>) -> ToolError {
     ToolError::new(ErrorCode::InvalidParams, message)
 }
-

@@ -1,0 +1,57 @@
+{
+  "name": "desktop_find_image",
+  "description": "Find a template image on screen.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "template_path": {
+        "type": "string",
+        "minLength": 1
+      },
+      "region": {
+        "type": "object",
+        "description": "Absolute screen region.",
+        "properties": {
+          "x": {
+            "type": "integer"
+          },
+          "y": {
+            "type": "integer"
+          },
+          "width": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "height": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "width",
+          "height"
+        ],
+        "additionalProperties": false
+      },
+      "threshold": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1,
+        "default": 0.9
+      }
+    },
+    "required": [
+      "template_path"
+    ],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_find_image",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

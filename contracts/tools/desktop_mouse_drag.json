@@ -1,0 +1,44 @@
+{
+  "name": "desktop_mouse_drag",
+  "description": "Drag the mouse from a start point to an end point.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "start_capture_id": {
+        "type": "string"
+      },
+      "start_element_id": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "end_capture_id": {
+        "type": "string"
+      },
+      "end_element_id": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "start_x": {
+        "type": "integer"
+      },
+      "start_y": {
+        "type": "integer"
+      },
+      "end_x": {
+        "type": "integer"
+      },
+      "end_y": {
+        "type": "integer"
+      }
+    },
+    "required": [],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_mouse_drag",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false
+  }
+}

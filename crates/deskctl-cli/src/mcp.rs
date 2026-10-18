@@ -1,6 +1,7 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use deskctl_core::{Config, Engine};
 use deskctl_protocol::{schema, ToolName, ToolProfile, ToolResult};
@@ -12,7 +13,10 @@ const PROMPTS: &[(&str, &str)] = &[
     ("desktop-window", "窗口枚举、激活、移动、缩放和信息读取"),
     ("desktop-text", "文本输入、快捷键、剪贴板"),
     ("desktop-semantic", "Windows UIA 目标绑定、观察、执行和验证"),
-    ("desktop-recovery", "过期 token、窗口变化和 dispatch unknown 的恢复"),
+    (
+        "desktop-recovery",
+        "过期 token、窗口变化和 dispatch unknown 的恢复",
+    ),
 ];
 
 pub async fn run(profile: ToolProfile, skill_root: PathBuf) -> Result<(), String> {
@@ -28,9 +32,12 @@ pub async fn run(profile: ToolProfile, skill_root: PathBuf) -> Result<(), String
         .map_err(|error| error.to_string())?;
 
     let stdin = tokio::io::stdin();
-    let mut stdout = tokio::io::stdout();
+    let writer = Arc::new(tokio::sync::Mutex::new(tokio::io::stdout()));
+    let active: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>> = Arc::new(Mutex::new(HashMap::new()));
+    let mut tasks = Vec::new();
     let mut reader = BufReader::new(stdin);
     let mut line = String::new();
+    let mut initialized = false;
 
     loop {
         line.clear();
@@ -49,7 +56,7 @@ pub async fn run(profile: ToolProfile, skill_root: PathBuf) -> Result<(), String
             Ok(value) => value,
             Err(error) => {
                 write_response(
-                    &mut stdout,
+                    &writer,
                     None,
                     Err((-32700, format!("parse error: {error}"))),
                 )
@@ -66,51 +73,113 @@ pub async fn run(profile: ToolProfile, skill_root: PathBuf) -> Result<(), String
         let params = request.get("params").cloned().unwrap_or_else(|| json!({}));
 
         if method.starts_with("notifications/") {
-            if method == "notifications/initialized" {
+            if method == "notifications/cancelled" {
+                if let Some(request_id) = params
+                    .get("requestId")
+                    .or_else(|| params.get("request_id"))
+                    .map(value_to_id)
+                {
+                    if let Ok(active) = active.lock() {
+                        if let Some(cancel) = active.get(&request_id) {
+                            cancel.store(true, Ordering::Release);
+                        }
+                    }
+                }
+            } else if method == "notifications/initialized" {
                 tracing::debug!("MCP client initialized");
             }
             continue;
         }
 
+        if id.is_none() {
+            continue;
+        }
+
+        if !initialized && method != "initialize" && method != "ping" {
+            write_response(
+                &writer,
+                id,
+                Err((-32002, "server is not initialized".to_string())),
+            )
+            .await?;
+            continue;
+        }
+
         let result = match method {
-            "initialize" => Ok(initialize_result(&params)),
+            "initialize" => {
+                initialized = true;
+                Ok(initialize_result(&params))
+            }
             "ping" => Ok(json!({})),
             "tools/list" => Ok(json!({
                 "tools": schema::tool_descriptors(session.profile)
             })),
             "tools/call" => {
-                let name = params
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| "missing tool name".to_string());
-                match name {
-                    Ok(name) => match name.parse::<ToolName>() {
-                        Ok(tool) => {
-                            let arguments = params
-                                .get("arguments")
-                                .cloned()
-                                .unwrap_or_else(|| json!({}));
-                            let request_id = id.as_ref().map(value_to_id);
+                let Some(name) = params.get("name").and_then(Value::as_str) else {
+                    write_response(&writer, id, Err((-32602, "missing tool name".to_string())))
+                        .await?;
+                    continue;
+                };
+                match name.parse::<ToolName>() {
+                    Ok(tool) => {
+                        let arguments = params
+                            .get("arguments")
+                            .cloned()
+                            .unwrap_or_else(|| json!({}));
+                        let request_id = id.as_ref().map(value_to_id);
+                        let progress_token = params
+                            .get("_meta")
+                            .and_then(|meta| meta.get("progressToken"))
+                            .cloned();
+                        let cancel: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+                        if let Some(request_id) = &request_id {
+                            if let Ok(mut active) = active.lock() {
+                                active.insert(request_id.clone(), cancel.clone());
+                            }
+                        }
+                        let engine = engine.clone();
+                        let session = session.clone();
+                        let writer = writer.clone();
+                        let active = active.clone();
+                        let response_id = id.clone();
+                        tasks.push(tokio::spawn(async move {
+                            if let Some(token) = progress_token.clone() {
+                                send_progress(&writer, token, 0, Some(1), "started").await;
+                            }
                             let result: ToolResult = engine
                                 .execute_with_session(
-                                    session.clone(),
+                                    session,
                                     tool,
                                     arguments,
-                                    request_id,
-                                    Arc::new(AtomicBool::new(false)),
+                                    request_id.clone(),
+                                    cancel,
                                 )
                                 .await;
-                            let text = serde_json::to_string(&result)
-                                .map_err(|error| format!("serialize tool result: {error}"))?;
-                            Ok(json!({
+                            if let Some(token) = progress_token {
+                                send_progress(&writer, token, 1, Some(1), "completed").await;
+                            }
+                            let is_error = !result.ok;
+                            let text = serde_json::to_string(&result).unwrap_or_else(|_| {
+                                "{\"ok\":false,\"error\":{\"code\":\"internal\"}}".to_string()
+                            });
+                            let response = json!({
                                 "content": [{ "type": "text", "text": text }],
-                                "isError": !result.ok,
+                                "isError": is_error,
                                 "structuredContent": result,
-                            }))
-                        }
-                        Err(error) => Err(error),
-                    },
-                    Err(error) => Err(error),
+                            });
+                            let _ = write_response(&writer, response_id, Ok(response)).await;
+                            if let Some(request_id) = request_id {
+                                if let Ok(mut active) = active.lock() {
+                                    active.remove(&request_id);
+                                }
+                            }
+                        }));
+                        continue;
+                    }
+                    Err(error) => {
+                        write_response(&writer, id, Err((-32602, error))).await?;
+                        continue;
+                    }
                 }
             }
             "prompts/list" => {
@@ -148,7 +217,7 @@ pub async fn run(profile: ToolProfile, skill_root: PathBuf) -> Result<(), String
             }
             "shutdown" | "exit" => {
                 if let Some(id) = id {
-                    write_response(&mut stdout, Some(id), Ok(json!({}))).await?;
+                    write_response(&writer, Some(id), Ok(json!({}))).await?;
                 }
                 break;
             }
@@ -156,17 +225,26 @@ pub async fn run(profile: ToolProfile, skill_root: PathBuf) -> Result<(), String
         };
 
         match result {
-            Ok(result) => write_response(&mut stdout, id, Ok(result)).await?,
+            Ok(result) => write_response(&writer, id, Ok(result)).await?,
             Err(error) => {
                 let code = if error.starts_with("method not found") {
                     -32601
                 } else {
                     -32602
                 };
-                write_response(&mut stdout, id, Err((code, error))).await?;
+                write_response(&writer, id, Err((code, error))).await?;
             }
         }
     }
+    for task in tasks {
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(3), task).await;
+    }
+    if let Ok(active) = active.lock() {
+        for cancel in active.values() {
+            cancel.store(true, Ordering::Release);
+        }
+    }
+    session.close();
     Ok(())
 }
 
@@ -190,7 +268,7 @@ fn initialize_result(params: &Value) -> Value {
 }
 
 async fn write_response(
-    stdout: &mut tokio::io::Stdout,
+    stdout: &Arc<tokio::sync::Mutex<tokio::io::Stdout>>,
     id: Option<Value>,
     result: Result<Value, (i32, String)>,
 ) -> Result<(), String> {
@@ -204,6 +282,7 @@ async fn write_response(
     };
     let mut encoded = serde_json::to_vec(&payload).map_err(|error| error.to_string())?;
     encoded.push(b'\n');
+    let mut stdout = stdout.lock().await;
     stdout
         .write_all(&encoded)
         .await
@@ -212,6 +291,34 @@ async fn write_response(
         .flush()
         .await
         .map_err(|error| format!("flush MCP output: {error}"))
+}
+
+async fn send_progress(
+    stdout: &Arc<tokio::sync::Mutex<tokio::io::Stdout>>,
+    token: Value,
+    progress: u64,
+    total: Option<u64>,
+    message: &str,
+) {
+    let mut params = json!({
+        "progressToken": token,
+        "progress": progress,
+        "message": message
+    });
+    if let Some(total) = total {
+        params["total"] = json!(total);
+    }
+    let payload = json!({
+        "jsonrpc": "2.0",
+        "method": "notifications/progress",
+        "params": params
+    });
+    if let Ok(mut encoded) = serde_json::to_vec(&payload) {
+        encoded.push(b'\n');
+        let mut stdout = stdout.lock().await;
+        let _ = stdout.write_all(&encoded).await;
+        let _ = stdout.flush().await;
+    }
 }
 
 fn value_to_id(value: &Value) -> String {

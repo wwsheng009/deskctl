@@ -3,9 +3,10 @@ use serde_json::Value;
 
 use crate::error::ToolError;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DispatchState {
+    #[default]
     NotSent,
     Sent,
     Partial,
@@ -18,15 +19,10 @@ impl DispatchState {
     }
 }
 
-impl Default for DispatchState {
-    fn default() -> Self {
-        Self::NotSent
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Effect {
+    #[default]
     Read,
     Unverifiable,
     ExternalCommit,
@@ -35,42 +31,26 @@ pub enum Effect {
     Partial,
 }
 
-impl Default for Effect {
-    fn default() -> Self {
-        Self::Unverifiable
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Verification {
     NotApplicable,
+    #[default]
     Unknown,
     Satisfied,
     Progress,
     NoChange,
 }
 
-impl Default for Verification {
-    fn default() -> Self {
-        Self::Unknown
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RiskClass {
+    #[default]
     ReadOnly,
     Reversible,
     BoundedWrite,
     ExternalCommit,
     DestructiveCritical,
-}
-
-impl Default for RiskClass {
-    fn default() -> Self {
-        Self::ReadOnly
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

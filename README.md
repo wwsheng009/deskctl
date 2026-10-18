@@ -1,104 +1,163 @@
 # Deskctl
 
-一个独立的、Windows 优先、面向所有 LLM / Agent 的桌面操作工具服务。
+Deskctl is a standalone Windows desktop-control service for LLMs and agents.
+It ships as one `deskctl.exe` and exposes a stateless CLI, a local named-pipe
+daemon, multi-session JSON-RPC, MCP stdio, and 28 `desktop_*` tools. It contains
+no Tauri UI, LLM SDK, workflow engine, or approval flow.
 
-项目名称暂定 **Deskctl**，取 “desktop control” 之意。它只提供桌面操作能力，
-不包含 Nuphus 的对话、工作流、记忆、插件市场或 Tauri GUI。
+> Implementation status: Windows first-release scope implemented. See
+> `docs/implementation-status.md` for the requirement-to-evidence audit and
+> `docs/known-limitations.md` for remaining release caveats.
 
-> 当前阶段：设计与可行性分析阶段，尚未开始功能代码实现。
+## Features
 
-## 文档
+- Screenshot: full screen, region, window, custom output path (always PNG)
+- Window list/info/activate/move/resize and window screenshots
+- Mouse click, double click, hover, move, scroll, drag
+- Unicode text input, key chords, target activation
+- Clipboard write/clean with no content logging
+- Template image, color, multi-color, OCR text lookup, and wait-for tools
+- PaddleOCR + YOLO ONNX perception with stable `capture_id + element_id`
+- Windows UIA target binding, observation, candidate execution, persistent
+  semantic locators, and post-condition verification
+- Multi-session isolation, per-session tokens, resource gate, cancellation
+- MCP `initialize`, `tools/list`, `tools/call`, prompts, progress, cancellation
+- `doctor` reports versions, capabilities, socket/token state, model hashes
 
-- [文档索引](docs/README.md)
-- [可行性分析](docs/feasibility-analysis.md)
-- [架构方案](docs/architecture.md)
-- [架构评审](docs/architecture-review.md)
-- [验收标准](docs/acceptance-criteria.md)
-- [测试计划](docs/test-plan.md)
-- [实施文档](docs/implementation-plan.md)
-- [MCP 服务设计](docs/mcp-service.md)
-- [LLM Skills 定义](docs/llm-skills.md)
-- [可扩展性设计](docs/extensibility.md)
+## Requirements
 
-## 项目定位
+- Windows 10/11 x64
+- Rust 1.92 (see `rust-toolchain.toml`)
+- Models and ONNX Runtime in `models/` or
+  `third_party/onnxruntime/win-x64/` (already fetched in this workspace)
 
-- 只提供 `desktop_*` 工具，不实现 LLM Agent 循环。
-- 工具协议与模型供应商解耦；支持 MCP、CLI 和本地 JSON-RPC 的客户端均可接入。
-- 默认以本地常驻 daemon 运行，保留观察令牌、截图缓存和会话状态。
-- 同一 daemon 支持多个并发 session；桌面输入动作仍通过资源门串行化，避免互相踩键盘鼠标。
-- 项目不包含审批流程；工具执行只做参数校验、风险标记、日志和结果验证。
+## Build and verify
 
-## 工具范围
-
-参考 Nuphus 当前的 28 个 `desktop_*` 工具：
-
-- 默认核心 profile：26 个工具
-- 完整 profile：28 个工具
-- `desktop_vision`：可选，依赖外部视觉模型
-- `desktop_agent_step`：可选，依赖增强判断模型
-
-工具组：
-
-- 鼠标、键盘、拖拽、剪贴板
-- 全屏、区域、窗口截图
-- 窗口枚举、激活、移动、缩放、信息
-- 图像模板、颜色、字库找字
-- 画面等待、OCR、YOLO 感知、视觉理解
-- Windows UIA 语义观察与执行
-- 执行后状态验证
-
-完整清单和平台矩阵见架构文档。
-
-## 平台策略
-
-| 平台 | 首期状态 |
-|---|---|
-| Windows 10/11 | 首期完整实现和验收目标 |
-| macOS | 保留平台抽象和适配器位置，后续实现 |
-| Linux X11 | 保留平台抽象，后续实现 |
-| Linux Wayland | 后续独立研究，不纳入首期 |
-| 其他平台 | 返回 `platform_not_supported` |
-
-首期只对 Windows 做功能和真机验收；macOS/Linux 的 trait、模块边界和条件编译保留，
-避免以后重写核心状态机。
-
-## 核心设计约束
-
-1. **单二进制、多模式**：`mcp`、`serve`、`call`、`tool`、`doctor` 共享同一套工具实现。
-2. **有状态工具必须走 daemon/session**：不能每次调用都启动新进程，否则观察令牌和截图缓存会丢失。
-3. **多会话并发**：允许多个 session 同时存在；读操作可并行，桌面写操作按资源门串行。
-4. **无审批**：不实现 `approve/reject`；风险级别作为元数据返回，不阻塞执行。
-5. **自定义截图路径**：`desktop_screenshot` / `desktop_window_screenshot` 接受调用方提供的输出路径。
-6. **模型随安装包分发**：PaddleOCR/YOLO 模型默认随安装包提供，同时保留在线下载和离线安装选项。
-7. **平台隔离**：Windows 首期落地；macOS/Linux 预留模块，不伪造跨平台能力。
-8. **尽量复用 Nuphus**：优先抽取现有 Rust 桌面实现，而不是从零重写。
-
-## 安全说明
-
-本项目不提供审批门。任何能连接本地 daemon 并持有 access token 的调用方，都可以执行
-已启用的桌面工具。建议：
-
-- 默认只监听 Named Pipe / Unix Domain Socket，不监听公网。
-- 默认启用工具 profile，不把全部高权限工具暴露给不可信 Agent。
-- 对输入文本、剪贴板和窗口内容做日志脱敏。
-- 如需只读场景，使用 `readonly` profile。
-
-## 目录约定
-
-```text
-deskctl/
-├─ README.md
-├─ docs/
-│  ├─ feasibility-analysis.md
-│  ├─ architecture.md
-│  ├─ architecture-review.md
-│  ├─ acceptance-criteria.md
-│  ├─ test-plan.md
-│  ├─ implementation-plan.md
-│  ├─ mcp-service.md
-│  ├─ llm-skills.md
-│  └─ extensibility.md
-├─ crates/             # 后续实现
-├─ tests/
-└─ scripts/
+```powershell
+cargo build --release -p deskctl-cli
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+.\target\release\deskctl.exe doctor
+.\scripts\verify-models.ps1
 ```
+
+## CLI
+
+```powershell
+deskctl --help
+deskctl doctor
+
+# Stateless tools
+deskctl tool desktop_screenshot --json '{"path":"shots/screen.jpg"}'
+deskctl tool desktop_windows_list
+deskctl tool desktop_mouse --json '{"action":"position"}'
+deskctl tool desktop_find_text --json @args.json
+Get-Content args.json | deskctl tool desktop_find_image --stdin
+```
+
+Screenshot paths are accepted as absolute or relative paths. Parent directories
+are created and the extension is forced to `.png` (`shot.jpg` becomes `shot.png`).
+
+Exit codes: `0` success, `1` internal/tool failure, `2` invalid parameters or
+unknown tool, `4` stale state/restart, `5` resource busy, `6` platform
+unsupported, `7` policy/authentication denial.
+
+## Daemon and sessions
+
+```powershell
+deskctl serve
+deskctl session create
+deskctl session list
+deskctl call <session_id> desktop_screenshot --json '{}'
+deskctl call <session_id> desktop_wait_for --request-id wait-1 --json '{"condition":"stable","timeout_ms":30000}'
+deskctl cancel wait-1
+deskctl session inspect <session_id>
+deskctl session close <session_id>
+deskctl shutdown
+```
+
+The daemon listens only on the local named pipe `\\.\pipe\deskctl` by default.
+Every request requires the access token from the token file. Session tokens are
+stored locally after `session create`; capture, target, and observation state
+never crosses sessions.
+
+## MCP
+
+```powershell
+deskctl mcp
+```
+
+The MCP process owns one implicit session. Stdout contains only newline-delimited
+JSON-RPC; logs go to stderr. Supported methods include `initialize`, `ping`,
+`tools/list`, `tools/call`, `prompts/list`, `prompts/get`, progress
+notifications, and cancellation notifications. Exiting the process closes the
+session and invalidates all tokens.
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"example","version":"1.0"}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"desktop_screen_size","arguments":{}}}
+```
+
+## Profiles
+
+| Profile | Tools | Purpose |
+|---|---:|---|
+| `minimal` | 6 | Screenshot, window list/activate/capture, mouse, input |
+| `standard` | 26 | Default core tools |
+| `full` | 28 | Adds `desktop_vision` and `desktop_agent_step` |
+| `readonly` | 9 | Capture/read/perceive/find/verify only |
+
+Use `--profile full`. `desktop_vision` requires a separately configured external
+provider; `desktop_agent_step` requires the optional enhanced-decision provider.
+Both return `model_unavailable` when the provider is absent.
+
+## Contracts and skills
+
+- `contracts/tools/` contains all 28 tool contracts in full profile.
+- Regenerate with `deskctl --profile full schema --out contracts/tools`.
+- `skills/desktop-basic`, `desktop-window`, `desktop-text`,
+  `desktop-semantic`, and `desktop-recovery` contain manifests and `SKILL.md`.
+- MCP prompts read the same `SKILL.md` files.
+
+## Safety
+
+Deskctl is intentionally approval-free. It is **not** a security sandbox.
+
+- Access is controlled by a local token file and the current Windows user.
+- Screen captures are written wherever the caller requests; callers own path
+  safety.
+- Template and perceived image paths are restricted to configured image roots.
+- OCR dictionary names are basename-only and cannot traverse paths.
+- Input text, clipboard contents, and screenshot pixels are not logged.
+- UIA values are returned as fingerprints, not raw document content.
+- `dispatch_state=sent` does not mean the business action succeeded. Never
+  automatically retry `sent`, `partial`, or `unknown` actions.
+
+## Packaging
+
+```powershell
+.\scripts\build-installer.ps1
+```
+
+The script builds a release binary and either invokes Inno Setup
+(`installer/deskctl.iss`) or creates `dist/deskctl-windows-x64.zip`. The package
+contains the executable, models, runtime, skills, contracts, licenses, and
+notices.
+
+## Documentation
+
+- `docs/architecture.md`
+- `docs/implementation-plan.md`
+- `docs/implementation-status.md`
+- `docs/acceptance-criteria.md`
+- `docs/test-plan.md`
+- `docs/mcp-service.md`
+- `docs/llm-skills.md`
+- `docs/known-limitations.md`
+- `docs/performance-baseline.md`
+
+## License
+
+Apache-2.0. See `LICENSE`, `NOTICE`, and `THIRD_PARTY_NOTICES.md`.

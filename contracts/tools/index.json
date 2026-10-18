@@ -1,0 +1,119 @@
+{
+  "schema_version": "0.1.0",
+  "profile": "full",
+  "count": 28,
+  "tools": [
+    {
+      "name": "desktop_mouse",
+      "file": "desktop_mouse.json"
+    },
+    {
+      "name": "desktop_mouse_drag",
+      "file": "desktop_mouse_drag.json"
+    },
+    {
+      "name": "desktop_input",
+      "file": "desktop_input.json"
+    },
+    {
+      "name": "desktop_screenshot",
+      "file": "desktop_screenshot.json"
+    },
+    {
+      "name": "desktop_screen_size",
+      "file": "desktop_screen_size.json"
+    },
+    {
+      "name": "desktop_window_screenshot",
+      "file": "desktop_window_screenshot.json"
+    },
+    {
+      "name": "desktop_windows_list",
+      "file": "desktop_windows_list.json"
+    },
+    {
+      "name": "desktop_window_activate",
+      "file": "desktop_window_activate.json"
+    },
+    {
+      "name": "desktop_window_move",
+      "file": "desktop_window_move.json"
+    },
+    {
+      "name": "desktop_window_resize",
+      "file": "desktop_window_resize.json"
+    },
+    {
+      "name": "desktop_window_info",
+      "file": "desktop_window_info.json"
+    },
+    {
+      "name": "desktop_vision",
+      "file": "desktop_vision.json"
+    },
+    {
+      "name": "desktop_perceive",
+      "file": "desktop_perceive.json"
+    },
+    {
+      "name": "desktop_find_image",
+      "file": "desktop_find_image.json"
+    },
+    {
+      "name": "desktop_find_color",
+      "file": "desktop_find_color.json"
+    },
+    {
+      "name": "desktop_find_multi_color",
+      "file": "desktop_find_multi_color.json"
+    },
+    {
+      "name": "desktop_find_text",
+      "file": "desktop_find_text.json"
+    },
+    {
+      "name": "desktop_wait_for",
+      "file": "desktop_wait_for.json"
+    },
+    {
+      "name": "desktop_clipboard_clean",
+      "file": "desktop_clipboard_clean.json"
+    },
+    {
+      "name": "desktop_clipboard_write",
+      "file": "desktop_clipboard_write.json"
+    },
+    {
+      "name": "desktop_targets_list",
+      "file": "desktop_targets_list.json"
+    },
+    {
+      "name": "desktop_target_bind",
+      "file": "desktop_target_bind.json"
+    },
+    {
+      "name": "desktop_semantic_observe",
+      "file": "desktop_semantic_observe.json"
+    },
+    {
+      "name": "desktop_semantic_candidate",
+      "file": "desktop_semantic_candidate.json"
+    },
+    {
+      "name": "desktop_semantic_execute",
+      "file": "desktop_semantic_execute.json"
+    },
+    {
+      "name": "desktop_semantic_action",
+      "file": "desktop_semantic_action.json"
+    },
+    {
+      "name": "desktop_verify_state",
+      "file": "desktop_verify_state.json"
+    },
+    {
+      "name": "desktop_agent_step",
+      "file": "desktop_agent_step.json"
+    }
+  ]
+}

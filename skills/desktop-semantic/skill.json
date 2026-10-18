@@ -1,0 +1,25 @@
+{
+  "platforms": [
+    "windows"
+  ],
+  "entry_prompt": "SKILL.md",
+  "version": "0.1.0",
+  "description": "Windows UIA 目标绑定、观察、执行和验证",
+  "requires": [
+    "session"
+  ],
+  "name": "desktop-semantic",
+  "id": "desktop-semantic",
+  "tools": [
+    "desktop_targets_list",
+    "desktop_target_bind",
+    "desktop_semantic_observe",
+    "desktop_semantic_candidate",
+    "desktop_semantic_execute",
+    "desktop_semantic_action",
+    "desktop_verify_state"
+  ],
+  "profiles": [
+    "standard"
+  ]
+}

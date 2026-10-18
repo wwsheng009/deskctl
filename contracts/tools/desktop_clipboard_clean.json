@@ -1,0 +1,17 @@
+{
+  "name": "desktop_clipboard_clean",
+  "description": "Clear the clipboard.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_clipboard_clean",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false
+  }
+}

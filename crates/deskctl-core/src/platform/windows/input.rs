@@ -85,11 +85,7 @@ pub fn mouse_scroll(direction: &str, amount: u32) -> Result<(), ToolError> {
     Ok(())
 }
 
-pub fn drag(
-    start: (i32, i32),
-    end: (i32, i32),
-    duration_ms: u64,
-) -> Result<(), ToolError> {
+pub fn drag(start: (i32, i32), end: (i32, i32), duration_ms: u64) -> Result<(), ToolError> {
     mouse_move(start.0, start.1)?;
     unsafe {
         mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
@@ -153,7 +149,10 @@ pub fn type_text(text: &str) -> Result<(), ToolError> {
     if sent != inputs.len() as u32 {
         return Err(ToolError::new(
             ErrorCode::DispatchUnknown,
-            format!("only {sent} of {} unicode events were accepted", inputs.len()),
+            format!(
+                "only {sent} of {} unicode events were accepted",
+                inputs.len()
+            ),
         )
         .retryable(false));
     }
@@ -284,4 +283,3 @@ mod tests {
         assert!(key_to_vk("ENTER").is_ok());
     }
 }
-

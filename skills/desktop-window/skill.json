@@ -1,0 +1,24 @@
+{
+  "platforms": [
+    "windows"
+  ],
+  "entry_prompt": "SKILL.md",
+  "version": "0.1.0",
+  "description": "窗口枚举、激活、移动、缩放和信息读取",
+  "requires": [
+    "session"
+  ],
+  "name": "desktop-window",
+  "id": "desktop-window",
+  "tools": [
+    "desktop_windows_list",
+    "desktop_window_info",
+    "desktop_window_activate",
+    "desktop_window_move",
+    "desktop_window_resize",
+    "desktop_window_screenshot"
+  ],
+  "profiles": [
+    "standard"
+  ]
+}

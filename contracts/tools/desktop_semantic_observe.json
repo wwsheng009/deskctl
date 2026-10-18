@@ -1,0 +1,48 @@
+{
+  "name": "desktop_semantic_observe",
+  "description": "Read the Windows UIA tree and candidate actions for a bound target.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "goal": {
+        "type": "string"
+      },
+      "target_token": {
+        "type": "string"
+      },
+      "scope": {
+        "type": "string",
+        "enum": [
+          "window",
+          "menu"
+        ]
+      },
+      "subtree_id": {
+        "type": "string"
+      },
+      "observation_token": {
+        "type": "string"
+      },
+      "cursor": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "view": {
+        "type": "string",
+        "enum": [
+          "candidates",
+          "regions"
+        ]
+      }
+    },
+    "required": [],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_semantic_observe",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

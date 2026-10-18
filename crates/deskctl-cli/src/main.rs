@@ -1,6 +1,7 @@
 mod client;
 mod daemon;
 mod mcp;
+mod output;
 
 use clap::{Parser, Subcommand};
 use deskctl_core::{config, Config, Engine};
@@ -9,7 +10,11 @@ use serde_json::Value;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
-#[command(name = "deskctl", version, about = "Standalone desktop tools for LLMs and agents")]
+#[command(
+    name = "deskctl",
+    version,
+    about = "Standalone desktop tools for LLMs and agents"
+)]
 struct Cli {
     #[arg(long, global = true, default_value = "standard")]
     profile: String,
@@ -65,6 +70,11 @@ enum Commands {
     },
     /// Show platform, model, token and socket diagnostics.
     Doctor,
+    /// Export the current profile's tool contracts as JSON.
+    Schema {
+        #[arg(long, default_value = "contracts/tools")]
+        out: PathBuf,
+    },
     /// Ask the daemon to shut down.
     Shutdown {
         #[arg(long)]
@@ -134,7 +144,30 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
     match command {
         Commands::Tool { name, json, stdin } => {
             let args = read_args(json, stdin)?;
-            let tool = name.parse::<ToolName>().map_err(|error| error)?;
+            let tool = match name.parse::<ToolName>() {
+                Ok(tool) => tool,
+                Err(error) => {
+                    let failure = serde_json::json!({
+                        "ok": false,
+                        "data": null,
+                        "error": {
+                            "code": "unknown_tool",
+                            "message": error,
+                            "retryable": false
+                        },
+                        "meta": {
+                            "dispatch_state": "not_sent",
+                            "effect": "read",
+                            "verification": "unknown",
+                            "retryable": false,
+                            "requires_observation": false,
+                            "risk": "read_only"
+                        }
+                    });
+                    output::print_json(&failure)?;
+                    return Ok(2);
+                }
+            };
             let engine = Engine::new(config_for(profile));
             let result = engine.execute_oneshot(tool, args).await;
             println!(
@@ -180,8 +213,7 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
                 "{}",
                 serde_json::to_string_pretty(&result).map_err(|error| error.to_string())?
             );
-            let ok = result.get("ok").and_then(Value::as_bool).unwrap_or(false);
-            Ok(if ok { 0 } else { 1 })
+            Ok(0)
         }
         Commands::Session { command } => {
             let (method, params, socket, token_file) = match command {
@@ -229,10 +261,14 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
                 "{}",
                 serde_json::to_string_pretty(&result).map_err(|error| error.to_string())?
             );
-            Ok(0)
+            Ok(exit_code_for(&result))
         }
         Commands::Mcp { skill_root } => {
-            mcp::run(profile, skill_root.unwrap_or_else(|| PathBuf::from("skills"))).await?;
+            mcp::run(
+                profile,
+                skill_root.unwrap_or_else(|| PathBuf::from("skills")),
+            )
+            .await?;
             Ok(0)
         }
         Commands::Doctor => {
@@ -244,13 +280,48 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
             Ok(if report.get("ok").and_then(Value::as_bool) == Some(true) {
                 0
             } else {
-                1
+                6
             })
         }
-        Commands::Shutdown {
-            socket,
-            token_file,
-        } => {
+        Commands::Schema { out } => {
+            std::fs::create_dir_all(&out)
+                .map_err(|error| format!("create schema directory: {error}"))?;
+            let descriptors = deskctl_protocol::schema::tool_descriptors(profile);
+            let mut index = Vec::new();
+            for descriptor in &descriptors {
+                let name = descriptor["name"]
+                    .as_str()
+                    .ok_or_else(|| "schema descriptor has no name".to_string())?;
+                let content =
+                    serde_json::to_string_pretty(descriptor).map_err(|error| error.to_string())?;
+                std::fs::write(out.join(format!("{name}.json")), format!("{content}\n"))
+                    .map_err(|error| format!("write {name}.json: {error}"))?;
+                index.push(serde_json::json!({
+                    "name": name,
+                    "file": format!("{name}.json")
+                }));
+            }
+            let index = serde_json::json!({
+                "schema_version": "0.1.0",
+                "profile": profile,
+                "count": descriptors.len(),
+                "tools": index
+            });
+            std::fs::write(
+                out.join("index.json"),
+                format!(
+                    "{}\n",
+                    serde_json::to_string_pretty(&index).map_err(|error| error.to_string())?
+                ),
+            )
+            .map_err(|error| format!("write schema index: {error}"))?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&index).map_err(|error| error.to_string())?
+            );
+            Ok(0)
+        }
+        Commands::Shutdown { socket, token_file } => {
             let result = client::request(
                 &socket.unwrap_or_else(config::default_socket_name),
                 &token_file.unwrap_or_else(config::token_path),
@@ -271,6 +342,25 @@ fn config_for(profile: ToolProfile) -> Config {
     Config {
         profile,
         ..Config::default()
+    }
+}
+
+fn exit_code_for(value: &Value) -> i32 {
+    if value.get("ok").and_then(Value::as_bool) == Some(true) {
+        return 0;
+    }
+    let code = value
+        .get("error")
+        .and_then(|error| error.get("code"))
+        .and_then(Value::as_str)
+        .unwrap_or("internal");
+    match code {
+        "invalid_params" | "unknown_tool" => 2,
+        "stale_capture" | "stale_observation" | "server_restarted" => 4,
+        "resource_busy" => 5,
+        "platform_not_supported" => 6,
+        "policy_denied" | "permission_denied" | "auth_required" => 7,
+        _ => 1,
     }
 }
 

@@ -15,6 +15,7 @@
 | [acceptance-criteria.md](acceptance-criteria.md) | 可执行的验收标准和发布门禁 |
 | [test-plan.md](test-plan.md) | 单元、契约、集成、E2E、性能、安全测试 |
 | [implementation-plan.md](implementation-plan.md) | 里程碑、任务分解、代码抽取、首个迭代 |
+| [implementation-status.md](implementation-status.md) | 当前实施进度、已验证能力与剩余缺口 |
 | [mcp-service.md](mcp-service.md) | MCP server、tools、prompts、取消、进度、错误映射 |
 | [llm-skills.md](llm-skills.md) | LLM Skill 定义、工具选择、失败恢复、评估 |
 | [extensibility.md](extensibility.md) | 新工具/平台/传输/provider/skill 的扩展机制 |
@@ -33,6 +34,7 @@
 | 验收标准 | acceptance-criteria | 已覆盖 |
 | 功能测试 | test-plan | 已覆盖 |
 | 实施计划 | implementation-plan | 已覆盖 |
+| 实施状态 | implementation-status | 已覆盖 |
 | MCP 服务 | mcp-service | 已覆盖 |
 | LLM Skills | llm-skills | 已覆盖 |
 | 可扩展性 | extensibility | 已覆盖 |

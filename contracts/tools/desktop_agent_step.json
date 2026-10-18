@@ -1,0 +1,37 @@
+{
+  "name": "desktop_agent_step",
+  "description": "One bounded semantic decision step using an optional decision provider.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "goal": {
+        "type": "string",
+        "minLength": 1
+      },
+      "target_token": {
+        "type": "string"
+      },
+      "scope": {
+        "type": "string",
+        "enum": [
+          "window",
+          "menu"
+        ]
+      },
+      "subtree_id": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "goal"
+    ],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_agent_step",
+    "readOnlyHint": false,
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false
+  }
+}

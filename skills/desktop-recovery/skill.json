@@ -1,0 +1,22 @@
+{
+  "platforms": [
+    "windows"
+  ],
+  "entry_prompt": "SKILL.md",
+  "version": "0.1.0",
+  "description": "过期 token、窗口变化和 dispatch unknown 的恢复",
+  "requires": [
+    "session"
+  ],
+  "name": "desktop-recovery",
+  "id": "desktop-recovery",
+  "tools": [
+    "desktop_screenshot",
+    "desktop_perceive",
+    "desktop_wait_for",
+    "desktop_verify_state"
+  ],
+  "profiles": [
+    "standard"
+  ]
+}

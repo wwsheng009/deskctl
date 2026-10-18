@@ -43,8 +43,11 @@ impl VisionEngine {
         let rgb = image::DynamicImage::ImageRgba8(image.clone()).to_rgb8();
         let blocks = paddle_ocr::PaddleOcr::with_engine(|engine| engine.ocr_with_boxes_image(&rgb))
             .map_err(|error| {
-                ToolError::new(ErrorCode::ModelUnavailable, format!("PaddleOCR failed: {error}"))
-                    .retryable(false)
+                ToolError::new(
+                    ErrorCode::ModelUnavailable,
+                    format!("PaddleOCR failed: {error}"),
+                )
+                .retryable(false)
             })?;
         let origin = screen_rect.unwrap_or(ScreenRect {
             x: 0,
@@ -72,4 +75,3 @@ impl VisionEngine {
             .collect())
     }
 }
-

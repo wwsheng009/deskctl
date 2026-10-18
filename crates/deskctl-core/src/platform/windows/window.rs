@@ -3,8 +3,7 @@ use serde_json::{json, Value};
 use windows::core::PWSTR;
 use windows::Win32::Foundation::{BOOL, HWND, LPARAM, RECT};
 use windows::Win32::System::Threading::{
-    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
-    PROCESS_QUERY_LIMITED_INFORMATION,
+    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetClassNameW, GetForegroundWindow, GetWindowRect, GetWindowTextLengthW,
@@ -15,11 +14,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 pub fn windows_list() -> Result<Vec<Value>, ToolError> {
     let mut handles: Vec<HWND> = Vec::new();
     unsafe {
-        EnumWindows(
-            Some(enum_window),
-            LPARAM((&raw mut handles) as isize),
-        )
-        .map_err(|error| ToolError::new(ErrorCode::PermissionDenied, error.to_string()))?;
+        EnumWindows(Some(enum_window), LPARAM((&raw mut handles) as isize))
+            .map_err(|error| ToolError::new(ErrorCode::PermissionDenied, error.to_string()))?;
     }
     let mut rows = Vec::new();
     for hwnd in handles {
@@ -53,11 +49,7 @@ pub fn find_window_by_title(title: &str) -> Result<Option<i64>, ToolError> {
     let rows = windows_list()?;
     let exact: Vec<&Value> = rows
         .iter()
-        .filter(|row| {
-            row["title"]
-                .as_str()
-                .is_some_and(|value| value == title)
-        })
+        .filter(|row| row["title"].as_str().is_some_and(|value| value == title))
         .collect();
     if exact.len() == 1 {
         return Ok(exact[0]["hwnd"].as_i64());
@@ -132,12 +124,10 @@ pub fn resize_window(hwnd: i64, width: u32, height: u32) -> Result<(), ToolError
     let info = info_for(hwnd)?;
     let x = info["x"].as_i64().unwrap_or_default() as i32;
     let y = info["y"].as_i64().unwrap_or_default() as i32;
-    let width = i32::try_from(width).map_err(|_| {
-        ToolError::new(ErrorCode::InvalidParams, "width is too large for Win32")
-    })?;
-    let height = i32::try_from(height).map_err(|_| {
-        ToolError::new(ErrorCode::InvalidParams, "height is too large for Win32")
-    })?;
+    let width = i32::try_from(width)
+        .map_err(|_| ToolError::new(ErrorCode::InvalidParams, "width is too large for Win32"))?;
+    let height = i32::try_from(height)
+        .map_err(|_| ToolError::new(ErrorCode::InvalidParams, "height is too large for Win32"))?;
     unsafe {
         SetWindowPos(
             hwnd,
@@ -221,18 +211,21 @@ fn process_name(pid: u32) -> Option<String> {
 }
 
 fn handle(hwnd: i64) -> Result<HWND, ToolError> {
-    let raw =
-        isize::try_from(hwnd).map_err(|_| ToolError::new(ErrorCode::InvalidParams, "invalid hwnd"))?;
+    let raw = isize::try_from(hwnd)
+        .map_err(|_| ToolError::new(ErrorCode::InvalidParams, "invalid hwnd"))?;
     if raw == 0 {
-        return Err(ToolError::new(ErrorCode::InvalidParams, "hwnd must not be zero"));
+        return Err(ToolError::new(
+            ErrorCode::InvalidParams,
+            "hwnd must not be zero",
+        ));
     }
-    Ok(HWND(raw as isize))
+    Ok(HWND(raw))
 }
 
 fn unavailable(hwnd: HWND) -> ToolError {
     ToolError::new(
         ErrorCode::TargetUnavailable,
-        format!("window {} is unavailable", hwnd.0 as isize),
+        format!("window {} is unavailable", hwnd.0),
     )
     .retryable(true)
 }
@@ -240,8 +233,7 @@ fn unavailable(hwnd: HWND) -> ToolError {
 fn unavailable_with(hwnd: HWND, message: String) -> ToolError {
     ToolError::new(
         ErrorCode::TargetUnavailable,
-        format!("window {} operation failed: {message}", hwnd.0 as isize),
+        format!("window {} operation failed: {message}", hwnd.0),
     )
     .retryable(true)
 }
-

@@ -1,0 +1,26 @@
+{
+  "platforms": [
+    "windows"
+  ],
+  "entry_prompt": "SKILL.md",
+  "version": "0.1.0",
+  "description": "截图、窗口、鼠标和键盘的基础桌面操作",
+  "requires": [
+    "session"
+  ],
+  "name": "desktop-basic",
+  "id": "desktop-basic",
+  "tools": [
+    "desktop_screenshot",
+    "desktop_window_screenshot",
+    "desktop_windows_list",
+    "desktop_window_activate",
+    "desktop_perceive",
+    "desktop_wait_for",
+    "desktop_mouse",
+    "desktop_input"
+  ],
+  "profiles": [
+    "minimal"
+  ]
+}

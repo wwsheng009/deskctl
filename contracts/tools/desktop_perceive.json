@@ -1,0 +1,23 @@
+{
+  "name": "desktop_perceive",
+  "description": "Locate OCR and YOLO elements in a screenshot.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "image_path": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "image_path"
+    ],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_perceive",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

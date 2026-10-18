@@ -59,4 +59,3 @@ pub fn clean() -> Result<(), ToolError> {
 fn clipboard_error(message: impl Into<String>) -> ToolError {
     ToolError::new(ErrorCode::PermissionDenied, message).retryable(true)
 }
-

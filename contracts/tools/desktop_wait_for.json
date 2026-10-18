@@ -1,0 +1,76 @@
+{
+  "name": "desktop_wait_for",
+  "description": "Wait for a screen region to change, stabilize, or contain a color.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "condition": {
+        "type": "string",
+        "enum": [
+          "change",
+          "stable",
+          "color"
+        ]
+      },
+      "region": {
+        "type": "object",
+        "description": "Absolute screen region.",
+        "properties": {
+          "x": {
+            "type": "integer"
+          },
+          "y": {
+            "type": "integer"
+          },
+          "width": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "height": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "width",
+          "height"
+        ],
+        "additionalProperties": false
+      },
+      "color": {
+        "type": "string"
+      },
+      "timeout_ms": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 300000,
+        "default": 10000
+      },
+      "interval_ms": {
+        "type": "integer",
+        "minimum": 50,
+        "maximum": 5000,
+        "default": 200
+      },
+      "stable_ms": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 300000,
+        "default": 500
+      }
+    },
+    "required": [
+      "condition"
+    ],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_wait_for",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

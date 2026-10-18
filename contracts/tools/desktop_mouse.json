@@ -1,0 +1,77 @@
+{
+  "name": "desktop_mouse",
+  "description": "Mouse click, double-click, hover, move, scroll, or read cursor position.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "click",
+          "double_click",
+          "hover",
+          "scroll",
+          "position",
+          "move"
+        ]
+      },
+      "hwnd": {
+        "type": "integer"
+      },
+      "capture_id": {
+        "type": "string"
+      },
+      "element_id": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "x": {
+        "type": "integer"
+      },
+      "y": {
+        "type": "integer"
+      },
+      "button": {
+        "type": "string",
+        "enum": [
+          "left",
+          "right",
+          "middle"
+        ],
+        "default": "left"
+      },
+      "clicks": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 2,
+        "default": 1
+      },
+      "direction": {
+        "type": "string",
+        "enum": [
+          "up",
+          "down",
+          "left",
+          "right"
+        ]
+      },
+      "amount": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100,
+        "default": 3
+      }
+    },
+    "required": [
+      "action"
+    ],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_mouse",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false
+  }
+}

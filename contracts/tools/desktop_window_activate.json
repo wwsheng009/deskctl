@@ -1,0 +1,23 @@
+{
+  "name": "desktop_window_activate",
+  "description": "Bring a window to the foreground.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "hwnd": {
+        "type": "integer"
+      }
+    },
+    "required": [
+      "hwnd"
+    ],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_window_activate",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false
+  }
+}

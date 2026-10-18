@@ -1,0 +1,33 @@
+{
+  "name": "desktop_window_resize",
+  "description": "Resize a window.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "hwnd": {
+        "type": "integer"
+      },
+      "width": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "height": {
+        "type": "integer",
+        "minimum": 1
+      }
+    },
+    "required": [
+      "hwnd",
+      "width",
+      "height"
+    ],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_window_resize",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false
+  }
+}

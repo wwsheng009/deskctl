@@ -1,0 +1,26 @@
+{
+  "name": "desktop_vision",
+  "description": "Analyze a screenshot with an optional external vision provider.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "image_path": {
+        "type": "string"
+      },
+      "prompt": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "image_path"
+    ],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_vision",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

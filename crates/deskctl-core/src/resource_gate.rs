@@ -62,4 +62,3 @@ impl ResourceGate {
         Ok(ResourcePermits { _permits: permits })
     }
 }
-

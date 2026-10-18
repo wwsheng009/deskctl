@@ -1,0 +1,27 @@
+{
+  "name": "desktop_window_screenshot",
+  "description": "Capture one window and save it as PNG.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "hwnd": {
+        "type": "integer"
+      },
+      "title": {
+        "type": "string"
+      },
+      "path": {
+        "type": "string"
+      }
+    },
+    "required": [],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_window_screenshot",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

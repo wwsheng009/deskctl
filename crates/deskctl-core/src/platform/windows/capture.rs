@@ -70,8 +70,8 @@ pub fn capture_screen(region: Option<ScreenRect>) -> Result<CapturedImage, ToolE
 }
 
 pub fn capture_window(hwnd: i64) -> Result<CapturedImage, ToolError> {
-    let hwnd_raw = isize::try_from(hwnd)
-        .map_err(|_| invalid("hwnd is outside the platform handle range"))?;
+    let hwnd_raw =
+        isize::try_from(hwnd).map_err(|_| invalid("hwnd is outside the platform handle range"))?;
     let before = crate::platform::windows::window::window_info(hwnd)?;
     let before_rect = rect_from_info(&before)?;
     let window = Window::all()
@@ -163,7 +163,6 @@ fn primary_monitor() -> Result<Monitor, ToolError> {
     monitors
         .into_iter()
         .find(|monitor| monitor.is_primary().unwrap_or(false))
-        .or_else(|| None)
         .ok_or_else(|| capture_error("no primary monitor available"))
 }
 
@@ -215,4 +214,3 @@ mod tests {
         assert_eq!(path.extension().and_then(|v| v.to_str()), Some("png"));
     }
 }
-

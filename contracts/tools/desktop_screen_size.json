@@ -1,0 +1,17 @@
+{
+  "name": "desktop_screen_size",
+  "description": "Read the primary monitor resolution.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_screen_size",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

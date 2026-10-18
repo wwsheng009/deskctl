@@ -47,7 +47,14 @@ pub fn parse_color(value: &str) -> Result<Rgb, ToolError> {
         let dr = parts.get(3).map_or(Ok(0), |value| parse_u8(value))?;
         let dg = parts.get(4).map_or(Ok(0), |value| parse_u8(value))?;
         let db = parts.get(5).map_or(Ok(0), |value| parse_u8(value))?;
-        return Ok(Rgb { r, g, b, dr, dg, db });
+        return Ok(Rgb {
+            r,
+            g,
+            b,
+            dr,
+            dg,
+            db,
+        });
     }
     let hex = value.trim_start_matches('#');
     if hex.len() == 6 {
@@ -132,7 +139,8 @@ pub fn find_image(
         width: tw,
         height: th,
         confidence,
-        diagnostic: (confidence < threshold).then(|| "best candidate did not reach threshold".into()),
+        diagnostic: (confidence < threshold)
+            .then(|| "best candidate did not reach threshold".into()),
     }
 }
 
@@ -176,7 +184,8 @@ fn scan_coordinates(width: u32, height: u32, direction: &str) -> Vec<(u32, u32)>
             let max = width.max(height) / 2 + 1;
             for radius in 0..=max {
                 for y in cy.saturating_sub(radius)..=(cy + radius).min(height.saturating_sub(1)) {
-                    for x in cx.saturating_sub(radius)..=(cx + radius).min(width.saturating_sub(1)) {
+                    for x in cx.saturating_sub(radius)..=(cx + radius).min(width.saturating_sub(1))
+                    {
                         if x == cx.saturating_sub(radius)
                             || x == (cx + radius).min(width - 1)
                             || y == cy.saturating_sub(radius)
@@ -205,6 +214,7 @@ fn pixel_matches(pixel: &image::Rgba<u8>, color: Rgb) -> bool {
         && pixel[2].abs_diff(color.b) <= color.db
 }
 
+#[allow(clippy::too_many_arguments)]
 fn window_diff(
     image: &[u8],
     stride: usize,
@@ -292,4 +302,3 @@ mod tests {
         assert_eq!((hit.x, hit.y), (108, 207));
     }
 }
-

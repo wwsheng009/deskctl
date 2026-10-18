@@ -216,9 +216,10 @@ pub fn input_schema(name: ToolName) -> Value {
             &["condition"],
         ),
         ToolName::ClipboardClean => object(json!({}), &[]),
-        ToolName::ClipboardWrite => {
-            object(json!({ "text": { "type": "string", "maxLength": 1048576 } }), &["text"])
-        }
+        ToolName::ClipboardWrite => object(
+            json!({ "text": { "type": "string", "maxLength": 1048576 } }),
+            &["text"],
+        ),
         ToolName::TargetsList => object(
             json!({
                 "query": { "type": "string" },
@@ -271,9 +272,7 @@ pub fn input_schema(name: ToolName) -> Value {
             }),
             &["locator", "action"],
         ),
-        ToolName::VerifyState => {
-            object(json!({ "expectation": expectation() }), &["expectation"])
-        }
+        ToolName::VerifyState => object(json!({ "expectation": expectation() }), &["expectation"]),
         ToolName::AgentStep => object(
             json!({
                 "goal": { "type": "string", "minLength": 1 },
@@ -354,4 +353,3 @@ mod tests {
         }
     }
 }
-

@@ -1,0 +1,110 @@
+{
+  "name": "desktop_semantic_action",
+  "description": "Execute a saved semantic locator without a temporary observation token.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "locator": {
+        "type": "object",
+        "properties": {
+          "app_id": {
+            "type": "string"
+          },
+          "window_id": {
+            "type": "string"
+          },
+          "window_title": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "window",
+              "button",
+              "text_field",
+              "check_box",
+              "radio_button",
+              "list",
+              "list_item",
+              "menu",
+              "menu_item",
+              "tab",
+              "document",
+              "other"
+            ]
+          },
+          "automation_id": {
+            "type": "string"
+          },
+          "accessible_name": {
+            "type": "string"
+          },
+          "ancestor_chain": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "supported_action": {
+            "type": "string",
+            "enum": [
+              "invoke",
+              "toggle",
+              "select",
+              "expand",
+              "collapse",
+              "focus",
+              "set_value"
+            ]
+          },
+          "ordinal_hint": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 65535
+          }
+        },
+        "required": [
+          "app_id"
+        ],
+        "additionalProperties": false
+      },
+      "action": {
+        "type": "string",
+        "enum": [
+          "invoke",
+          "toggle",
+          "select",
+          "expand",
+          "collapse",
+          "focus",
+          "set_value"
+        ]
+      },
+      "value": {
+        "type": "string",
+        "maxLength": 16384
+      },
+      "delivery_mode": {
+        "type": "string",
+        "enum": [
+          "foreground",
+          "auto",
+          "background"
+        ],
+        "default": "foreground"
+      }
+    },
+    "required": [
+      "locator",
+      "action"
+    ],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_semantic_action",
+    "readOnlyHint": false,
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false
+  }
+}

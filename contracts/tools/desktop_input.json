@@ -1,0 +1,115 @@
+{
+  "name": "desktop_input",
+  "description": "Type text or send a hotkey to the foreground or a target window.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "mode": {
+        "type": "string",
+        "enum": [
+          "type",
+          "hotkey"
+        ]
+      },
+      "target_locator": {
+        "type": "object",
+        "properties": {
+          "app_id": {
+            "type": "string"
+          },
+          "window_id": {
+            "type": "string"
+          },
+          "window_title": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "window",
+              "button",
+              "text_field",
+              "check_box",
+              "radio_button",
+              "list",
+              "list_item",
+              "menu",
+              "menu_item",
+              "tab",
+              "document",
+              "other"
+            ]
+          },
+          "automation_id": {
+            "type": "string"
+          },
+          "accessible_name": {
+            "type": "string"
+          },
+          "ancestor_chain": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "supported_action": {
+            "type": "string",
+            "enum": [
+              "invoke",
+              "toggle",
+              "select",
+              "expand",
+              "collapse",
+              "focus",
+              "set_value"
+            ]
+          },
+          "ordinal_hint": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 65535
+          }
+        },
+        "required": [
+          "app_id"
+        ],
+        "additionalProperties": false
+      },
+      "hwnd": {
+        "type": "integer"
+      },
+      "text": {
+        "type": "string",
+        "maxLength": 65536
+      },
+      "send": {
+        "type": "string",
+        "enum": [
+          "enter",
+          "ctrl+enter",
+          "tab",
+          "none"
+        ],
+        "default": "enter"
+      },
+      "keys": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "minItems": 1
+      }
+    },
+    "required": [
+      "mode"
+    ],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_input",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false
+  }
+}

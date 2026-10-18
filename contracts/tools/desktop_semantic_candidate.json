@@ -1,0 +1,27 @@
+{
+  "name": "desktop_semantic_candidate",
+  "description": "Read details and a replay locator for an observed candidate.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "observation_token": {
+        "type": "string"
+      },
+      "candidate_id": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "observation_token",
+      "candidate_id"
+    ],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_semantic_candidate",
+    "readOnlyHint": true,
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

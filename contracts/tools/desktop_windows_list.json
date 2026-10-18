@@ -1,0 +1,17 @@
+{
+  "name": "desktop_windows_list",
+  "description": "List visible windows and their process information.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_windows_list",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

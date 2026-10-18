@@ -1,0 +1,24 @@
+{
+  "name": "desktop_clipboard_write",
+  "description": "Write text to the clipboard.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "text": {
+        "type": "string",
+        "maxLength": 1048576
+      }
+    },
+    "required": [
+      "text"
+    ],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_clipboard_write",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false
+  }
+}

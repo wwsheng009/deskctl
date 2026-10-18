@@ -30,10 +30,14 @@ pub fn report() -> Value {
     let exe_dir = std::env::current_exe()
         .ok()
         .and_then(|path| path.parent().map(Path::to_path_buf));
-    let onnx_runtime = ["onnxruntime.dll", "libonnxruntime.so", "libonnxruntime.dylib"]
-        .iter()
-        .map(|name| file_check(exe_dir.as_deref(), name))
-        .collect::<Vec<_>>();
+    let onnx_runtime = [
+        "onnxruntime.dll",
+        "libonnxruntime.so",
+        "libonnxruntime.dylib",
+    ]
+    .iter()
+    .map(|name| file_check(exe_dir.as_deref(), name))
+    .collect::<Vec<_>>();
 
     json!({
         "ok": true,

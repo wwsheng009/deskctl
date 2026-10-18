@@ -12,14 +12,14 @@ mod imp {
     };
     pub use super::windows::clipboard::{clean as clipboard_clean, write_text as clipboard_write};
     pub use super::windows::input::{
-        drag, hotkey, is_valid_key, key_to_vk, mouse_click, mouse_move, mouse_position, mouse_scroll,
-        type_text,
+        drag, hotkey, is_valid_key, key_to_vk, mouse_click, mouse_move, mouse_position,
+        mouse_scroll, type_text,
     };
+    pub use super::windows::uia::{observe_window, perform_action, UiNode, UiaAction};
     pub use super::windows::window::{
         activate_window, find_window_by_title, move_window, resize_window, window_info,
         windows_list,
     };
-    pub use super::windows::uia::{observe_window, perform_action, UiNode, UiaAction};
 }
 
 #[cfg(not(windows))]
@@ -85,22 +85,13 @@ mod imp {
     pub fn mouse_move(_x: i32, _y: i32) -> Result<(), ToolError> {
         Err(unsupported())
     }
-    pub fn mouse_click(
-        _x: i32,
-        _y: i32,
-        _button: &str,
-        _clicks: u8,
-    ) -> Result<(), ToolError> {
+    pub fn mouse_click(_x: i32, _y: i32, _button: &str, _clicks: u8) -> Result<(), ToolError> {
         Err(unsupported())
     }
     pub fn mouse_scroll(_direction: &str, _amount: u32) -> Result<(), ToolError> {
         Err(unsupported())
     }
-    pub fn drag(
-        _start: (i32, i32),
-        _end: (i32, i32),
-        _duration_ms: u64,
-    ) -> Result<(), ToolError> {
+    pub fn drag(_start: (i32, i32), _end: (i32, i32), _duration_ms: u64) -> Result<(), ToolError> {
         Err(unsupported())
     }
     pub fn type_text(_text: &str) -> Result<(), ToolError> {
@@ -148,4 +139,3 @@ mod imp {
         Err(unsupported())
     }
 }
-

@@ -1,0 +1,48 @@
+{
+  "name": "desktop_screenshot",
+  "description": "Capture the screen or a screen region and save it as PNG.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string"
+      },
+      "region": {
+        "type": "object",
+        "description": "Absolute screen region.",
+        "properties": {
+          "x": {
+            "type": "integer"
+          },
+          "y": {
+            "type": "integer"
+          },
+          "width": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "height": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "width",
+          "height"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": [],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_screenshot",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

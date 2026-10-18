@@ -1,0 +1,77 @@
+{
+  "name": "desktop_find_multi_color",
+  "description": "Find a multi-point color pattern on screen.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "anchor": {
+        "type": "string",
+        "minLength": 1
+      },
+      "offsets": {
+        "type": "string",
+        "minLength": 1
+      },
+      "region": {
+        "type": "object",
+        "description": "Absolute screen region.",
+        "properties": {
+          "x": {
+            "type": "integer"
+          },
+          "y": {
+            "type": "integer"
+          },
+          "width": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "height": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "width",
+          "height"
+        ],
+        "additionalProperties": false
+      },
+      "min_match_ratio": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1,
+        "default": 0.8
+      },
+      "direction": {
+        "type": "string",
+        "enum": [
+          "left_top",
+          "left_bottom",
+          "right_top",
+          "right_bottom",
+          "column_left_top",
+          "column_right_top",
+          "column_left_bottom",
+          "column_right_bottom",
+          "center"
+        ],
+        "default": "left_top"
+      }
+    },
+    "required": [
+      "anchor",
+      "offsets"
+    ],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_find_multi_color",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

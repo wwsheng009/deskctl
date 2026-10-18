@@ -2,19 +2,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::result::RiskClass;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolProfile {
     Minimal,
+    #[default]
     Standard,
     Full,
     Readonly,
-}
-
-impl Default for ToolProfile {
-    fn default() -> Self {
-        Self::Standard
-    }
 }
 
 impl ToolProfile {

@@ -1,0 +1,31 @@
+{
+  "name": "desktop_window_move",
+  "description": "Move a window to a new position.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "hwnd": {
+        "type": "integer"
+      },
+      "x": {
+        "type": "integer"
+      },
+      "y": {
+        "type": "integer"
+      }
+    },
+    "required": [
+      "hwnd",
+      "x",
+      "y"
+    ],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_window_move",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false
+  }
+}

@@ -134,4 +134,3 @@ pub fn file_sha256(path: &Path) -> std::io::Result<String> {
     std::io::copy(&mut file, &mut hasher)?;
     Ok(hex::encode(hasher.finalize()))
 }
-

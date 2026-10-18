@@ -239,7 +239,8 @@ impl Session {
             .lock()
             .map_err(|_| internal("capture cache poisoned"))?;
         let capture = captures.get_mut(id).ok_or_else(|| {
-            ToolError::new(ErrorCode::StaleCapture, "capture is no longer available").retryable(true)
+            ToolError::new(ErrorCode::StaleCapture, "capture is no longer available")
+                .retryable(true)
         })?;
         update(capture);
         Ok(())
@@ -286,8 +287,11 @@ impl Session {
             .lock()
             .map_err(|_| internal("observation table poisoned"))?;
         let observation = guard.as_ref().ok_or_else(|| {
-            ToolError::new(ErrorCode::StaleObservation, "no semantic observation is available")
-                .retryable(true)
+            ToolError::new(
+                ErrorCode::StaleObservation,
+                "no semantic observation is available",
+            )
+            .retryable(true)
         })?;
         if observation.token != token {
             return Err(ToolError::new(

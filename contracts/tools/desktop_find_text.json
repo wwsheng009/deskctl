@@ -1,0 +1,63 @@
+{
+  "name": "desktop_find_text",
+  "description": "Find text using a local character dictionary.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "dict_name": {
+        "type": "string",
+        "minLength": 1
+      },
+      "words": {
+        "type": "string",
+        "minLength": 1
+      },
+      "region": {
+        "type": "object",
+        "description": "Absolute screen region.",
+        "properties": {
+          "x": {
+            "type": "integer"
+          },
+          "y": {
+            "type": "integer"
+          },
+          "width": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "height": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "width",
+          "height"
+        ],
+        "additionalProperties": false
+      },
+      "sim": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1,
+        "default": 1.0
+      }
+    },
+    "required": [
+      "dict_name",
+      "words",
+      "region"
+    ],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_find_text",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use std::path::Path;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use deskctl_protocol::ToolProfile;
@@ -90,7 +90,7 @@ pub fn config_dir() -> PathBuf {
 
 pub fn data_dir() -> PathBuf {
     dirs::data_local_dir()
-        .unwrap_or_else(|| config_dir())
+        .unwrap_or_else(config_dir)
         .join("deskctl")
 }
 
@@ -126,10 +126,7 @@ pub fn models_dir() -> Option<PathBuf> {
         Some(PathBuf::from("models")),
         Some(PathBuf::from("src-tauri/desktop/models")),
     ];
-    candidates
-        .into_iter()
-        .flatten()
-        .find(|path| path.is_dir())
+    candidates.into_iter().flatten().find(|path| path.is_dir())
 }
 
 pub fn onnx_runtime_path() -> Option<PathBuf> {

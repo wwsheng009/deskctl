@@ -1,0 +1,21 @@
+{
+  "platforms": [
+    "windows"
+  ],
+  "entry_prompt": "SKILL.md",
+  "version": "0.1.0",
+  "description": "文本输入、快捷键、剪贴板",
+  "requires": [
+    "session"
+  ],
+  "name": "desktop-text",
+  "id": "desktop-text",
+  "tools": [
+    "desktop_input",
+    "desktop_clipboard_write",
+    "desktop_clipboard_clean"
+  ],
+  "profiles": [
+    "standard"
+  ]
+}
