@@ -217,7 +217,62 @@ LLM 决策，不弹审批）：
 映射规则（实现层）：`HALTED_BEFORE_EFFECT` 与 `RECONCILIATION_REQUIRED` 都对应控制台可见的
 "HALTED"，由 outcome 字段区分（与 OpenAdapt 的 `transaction_outcome` 做法一致）。
 
-## 5. 验收标准（AC-RPL-001..009）
+### 4.6 失败后的接手契约（handoff & resume）——LLM/人如何继续
+
+目标：失败时调用方（LLM 或人）**不需要猜测**——run report 直接给出"停在哪、为什么、能否重跑、下一步做什么"。
+
+#### 4.6.1 run report 的 `handoff` 对象
+
+```json
+"handoff": {
+  "run_id": "run-9a3c…",
+  "failed_step": "s4",
+  "reason": "identity_mismatch",
+  "effect_may_have_occurred": false,
+  "safe_to_retry": true,
+  "resume_hint": { "from_step": "s4", "params_patch": { "sap": 5702916 } },
+  "suggested_actions": [
+    { "action": "override_param", "detail": "窗口已重建：--param sap=<新 hwnd> 后从 s4 续跑" },
+    { "action": "reobserve", "detail": "desktop_semantic_observe 取得新 locator，再用 --from s4" },
+    { "action": "manual", "detail": "用 desktop_* 手动完成 s4..s6，然后 script_run --from s7" }
+  ]
+}
+```
+
+推导规则（实现层）：
+
+| outcome / 失败点 | `effect_may_have_occurred` | `safe_to_retry` | `resume_hint.from_step` | 首选建议 |
+|---|---|---|---|---|
+| 预检拒绝（未执行任何步） | false | true | 空（从头） | 修参数/脚本后重跑 |
+| `not_sent` 失败（含重绑后仍失败） | false | true | 失败步 | `override_param` / `reobserve` |
+| `partial` / `unknown` 失败 | **true** | **false** | 不给续跑（先核对） | `manual`：先核实"是否已生效"，再决定 |
+| 强核验（readback）失败 | true | false | 不给续跑 | 人工核对产物/记录后补跑 |
+| 强核验通过但脚本自身报错（`fail/assert`） | 按前序步骤 | true | 失败步 | 修脚本 |
+
+#### 4.6.2 `resume`（`--from <step>`）的语义
+
+- 续跑是**新的一次 run**（新 `run_id`），使用**同一会话**；`preflight` 照常执行；
+- 变量重建规则：`$param`（含 `params_patch` 覆盖）→ 重新求值；`$target.*` → **重新解析并绑定**（§4.4 描述+指纹，不假设旧 hwnd 有效）；`$var.*`/`$steps.*` → 由 `history --run <旧 run_id>` 回填（只读）；无法回填的引用 → preflight 报错并列出；
+- `--from` 之前的步骤**不会重复执行**；但 `from_step` 之前声明的 readback 断言不重跑（旧 run 的核验结论随 report 保留）；
+- 续跑同样受 `risk_max`/`on_error`/限额约束；`RECONCILIATION_REQUIRED` 的 run 默认**拒绝续跑**，除非调用方显式传 `allow_resume_after_unknown=true`（审计留痕）。
+
+#### 4.6.3 不自动继续原则
+
+脚本失败后**不会**自动重试/自动继续（`on_error=continue` 除外）；`handoff` 是**给调用方的输入**，是否接手、如何接手由 LLM/人决定——与"无审批"原则一致（工具不弹窗、不代做决策）。
+
+### 4.7 会话与并发约束（集中声明）
+
+| 对象 | 作用域 | 并发规则 |
+|---|---|---|
+| recorder | 会话内，最多 1 个 | 同会话重复 `recorder_start` → `resource_busy`（含当前 recorder 信息） |
+| script run | 会话内 | **同会话同一时刻最多 1 个 run**（第二个返回 `resource_busy`，附当前 run_id）；不同会话可并发，经资源门 FIFO 与其它 agent 公平交错 |
+| checkpoint | 会话内（上限 8 个） | 与 run 无耦合；run 引用的检查点必须属于同一会话 |
+| capture/target/observation 引用 | 会话内 | 跨会话一律失效（既有语义，AC-SESS-002 不变） |
+| 审计 | 全局文件 | 记录 `session_id`/`owner`/`run_id`；按天分片，跨会话可查（受权限约束） |
+
+理由：run/recorder 共享会话语义（变量、取消标志、checkpoint 可见性），允许同会话并发会造成变量与取消互相污染；串行化是**最简且可解释**的选择。
+
+## 5. 验收标准（AC-RPL-001..014）
 
 | 编号 | 通过标准 | 验证方法 |
 |---|---|---|
@@ -230,6 +285,8 @@ LLM 决策，不弹审批）：
 | AC-RPL-007 | hwnd 失效处理：preflight 在目标关闭后可用 `launch_ref` 受限启动并重新绑定；执行中句柄失效自动重绑一次并在 run report 记录 `rebinds`；三类失败（关闭/歧义/指纹不符）分类正确且默认拒绝；`strictness=loose` 才放宽 | 集成：录放之间关闭应用再拉起；执行中杀窗口；伪造 pid 触发身份校验拒绝 |
 | AC-RPL-008 | 核验分级：`verify.tier=screen`（弱）与 `readback`（强）均可执行；run report 每步标注核验级别；`require_readback=true` 在实现能力缺失时被 preflight 拒绝；`readback` 用 `file_sha256`/`xlsx_cell`/`docx_contains` 等实际读回值（可用故障注入验证：屏幕成功但读回失败 → 判定失败） | 单测 + E2E（含故障注入：伪造成功后写错误数据） |
 | AC-RPL-009 | run-level `outcome` 正确：`not_sent` 失败 → `HALTED_BEFORE_EFFECT`；`partial/unknown` 或强核验失败 → `RECONCILIATION_REQUIRED`（且不出具"成功"回执）；全步成功 + 强核验通过 → `VERIFIED`；未声明强核验 → `COMPLETED_UNVERIFIED`；预检拒绝 → `REJECTED_POLICY` | 单测（映射表全枚举）+ 集成 |
+| AC-RPL-013 | 失败接手契约（§4.6）：run report 含 `handoff`（failed_step/reason/effect_may_have_occurred/safe_to_retry/resume_hint/suggested_actions），推导符合 §4.6.1 表；`--from` 续跑在同一会话重建变量并成功；`RECONCILIATION_REQUIRED` 默认拒绝续跑 | 集成：制造三种失败（not_sent / partial / readback 失败）各断言 handoff 字段；改参后 `--from` 续跑成功 |
+| AC-RPL-014 | 会话与并发约束（§4.7）：同会话第二个 `recorder_start`/`script_run` 返回 `resource_busy` 且附当前对象 id；不同会话并发运行互不干扰（审计可按 run_id 分离） | 集成 + 并发用例 |
 
 ## 6. 测试计划
 
@@ -239,6 +296,7 @@ LLM 决策，不弹审批）：
 - 安全：高风险步骤拒绝、脚本路径越界拒绝、`volatile` capture 缺失时的报错文案。
 - 性能：`script run` 的额外开销（校验 + 报告）目标 <2ms/步。
 - hwnd 失效（AC-RPL-007）：① 录制后关闭 SAP 会话窗口 → preflight 经 `launch_ref` 受限启动并绑定成功（run report 含 `relaunched=true`）；② 执行中关闭窗口 → 单步自动重绑或按 `on_error` 停止，`rebinds` 记录原因与前后 hwnd；③ 人工制造"同名窗口+pid 不符"→ `balanced` 拒绝并给候选清单。
+- 失败接手（AC-RPL-013/014）：三种失败（`not_sent`、`partial`、readback 失败）各跑一次并断言 `handoff` 字段与 `safe_to_retry`；同会话并发 `script_run` 返回 `resource_busy`；`--param` 修正后 `--from` 续跑成功。
 
 ## 7. 实施任务分解（D3）
 

@@ -22,6 +22,7 @@
 4. **脱敏优先**：默认不落敏感文本全文；`args` 只存白名单字段 + 体积上限。
 5. **本地证据，不是安全边界**：文件可被本机用户修改；文档明确其定位。
 6. **协议零变更**：审计是 daemon 侧行为，工具 Schema、结果封套、MCP 协议都不变。
+7. **日志与审计同源脱敏**：`tracing` 日志（`DESKCTL_LOG`）与审计共用同一套脱敏规则（密码字段、键名单、文本 digest 策略）；默认 `info` 级别不输出 args/文本明文——避免"审计干净但日志泄漏"。
 
 ## 3. 架构与数据流
 
@@ -107,6 +108,15 @@ CLI / MCP / oneshot ─┤                ├─► Engine::execute_with_session
 - `basic`（默认）：不记 `args`（只记 `args_digest` + 工具名 + 结果元数据）。
 - `full`：按 §5.1 记录脱敏后的 `args`。
 
+### 5.3 日志（tracing）规则
+
+| 规则 | 说明 |
+|---|---|
+| 脱敏同源 | 日志字段复用 §5.1 的处理函数；禁止绕过（如 `debug!("args={:?}", args)` 之类直接打印原始入参） |
+| 默认级别 | `info`；`debug`/`trace` 需显式开启，且仍不含 `text`/密码/键名单明文 |
+| 文本策略 | `DESKCTL_AUDIT_TEXT=full` 只影响**审计文件**，日志仍按 `digest` 处理（`DESKCTL_LOG_TEXT` 单独开关，默认 `digest`） |
+| 内容边界 | 日志用于诊断（启动、目录、错误、限额、审计丢弃计数）；**不承担审计职责**（对账以 §4 记录为准） |
+
 ## 6. 存储、轮转与保留
 
 - 目录：`%LOCALAPPDATA%\deskctl\audit\`（沿用 `config::data_dir()`；`DESKCTL_AUDIT_DIR` 可覆盖）。
@@ -115,12 +125,17 @@ CLI / MCP / oneshot ─┤                ├─► Engine::execute_with_session
   - daemon 启动时执行一次清理；之后每天首次写入前再检查。
   - 清理策略：先删最旧的完整分片文件；仍在超限则从最旧文件头部截断（重写该文件，保留尾部）。
 - 磁盘失败降级：审计目录不可写 → 工具照常执行；stderr 打一次告警（`audit disabled: <reason>`），进程内 `audit_state=disabled`，`history` 提示。
-- 不加密、不签名（见 §2.5）；文件权限继承用户目录默认 ACL。## 7. 查询接口：`deskctl history`
+- 不加密、不签名（见 §2.5）；文件权限继承用户目录默认 ACL。
+- **run 产物**（脚本执行相关）：`%LOCALAPPDATA%\deskctl\runs\<run_id>\`（含 `report.json`、`expanded.jsonl`、可选的 `script.rhai`/脚本副本）；
+  与审计共用保留语义：`DESKCTL_RUNS_RETAIN_DAYS`（默认 30）、`DESKCTL_RUNS_MAX_MB`（默认 256），清理最旧 run 目录；
+  产物中的文本同样遵守 §5.1 脱敏（`args` 快照按审计策略处理）。
+
+## 7. 查询接口：`deskctl history`
 
 CLI 直读审计文件（不经 daemon，daemon 不在也能查），只读扫描，流式过滤。
 
 ```text
-deskctl history [--session <id>] [--owner <id>] [--tool <name>] [--since <rfc3339|1h|today>]
+deskctl history [--session <id>] [--owner <id>] [--tool <name>] [--run <run_id>] [--since <rfc3339|1h|today>]
                 [--until <rfc3339|now>] [--failed-only] [--kind tool_call|session]
                 [--limit 50] [--json] [--dir <path>] [--summary]
 ```
@@ -130,6 +145,7 @@ deskctl history [--session <id>] [--owner <id>] [--tool <name>] [--since <rfc333
 | `--session` / `--owner` / `--tool` | 精确匹配（owner/tool 支持前缀 `agent:sap-*`） |
 | `--since` / `--until` | 相对时间（`30m/2h/7d`）、`today`、RFC3339；默认最近 24h |
 | `--failed-only` | 仅 `ok=false` 或 `dispatch_state in (partial, unknown)` |
+| `--run <run_id>` | 列出某次脚本 run 的全部记录（等价于 `request_id` 前缀 `<run_id>:` 匹配；用于失败接手时回看已完成步骤） |
 | `--limit` | 最新 N 条（默认 50；`0`=全部，流式输出） |
 | `--summary` | 聚合视图：按 tool/owner 计数、失败率、P50/P95 耗时（见下） |
 | `--json` | 输出原始 JSONL 行（可管道给 jq） |
@@ -158,6 +174,9 @@ deskctl history [--session <id>] [--owner <id>] [--tool <name>] [--since <rfc333
 | `DESKCTL_AUDIT_MAX_MB` | `256` | 目录总量上限 |
 | `DESKCTL_AUDIT_RETAIN_DAYS` | `30` | 保留天数 |
 | `DESKCTL_LOG` | 空 | 初始化 `tracing`（`error`/`warn`/`info`/`debug`），修复"依赖未初始化"现状 |
+| `DESKCTL_LOG_TEXT` | `digest` | 日志中的文本策略（`none`/`digest`/`full`）；独立于 `DESKCTL_AUDIT_TEXT` |
+| `DESKCTL_RUNS_RETAIN_DAYS` | `30` | run 产物目录保留天数 |
+| `DESKCTL_RUNS_MAX_MB` | `256` | run 产物目录总量上限 |
 
 ## 9. 性能影响与测量
 
@@ -166,7 +185,7 @@ deskctl history [--session <id>] [--owner <id>] [--tool <name>] [--since <rfc333
 - 门禁：对比 `scripts/perf-baseline.ps1` 基线（AC-PERF-001..009），**工具调用 p95 回退 <5%**；审计开启 vs 关闭各测一次，结果写入 `performance-baseline.md`。
 - 丢弃语义：队列满 → 丢弃当前记录、`audit_dropped+=1`；下一次成功写入时附加 `audit_dropped` 计数行（`kind="audit_health"`）。
 
-## 10. 验收标准（AC-AUD-001..007）
+## 10. 验收标准（AC-AUD-001..008）
 
 | 编号 | 通过标准 | 验证方法 |
 |---|---|---|
@@ -177,6 +196,7 @@ deskctl history [--session <id>] [--owner <id>] [--tool <name>] [--since <rfc333
 | AC-AUD-005 | 轮转与保留生效：超过 `MAX_FILE_MB` 切分片；超过 `RETAIN_DAYS`/`MAX_MB` 的老文件被清理且最新记录不丢 | 单测：小阈值 + 伪造时间戳文件 |
 | AC-AUD-006 | 审计目录不可写时工具照常成功，仅告警一次；`audit_state=disabled` 可观测 | 集成：只读目录模拟 |
 | AC-AUD-007 | 脱敏增强：密码字段（UIA `IsPassword=true`）值永不落盘；键名单（api_key/token/authorization/password/secret）命中的参数值替换为 `<redacted>` 并置 `args_redacted=true`；审计文件全文检索无命中 | 安全脚本：写入样例敏感值后全文检索 |
+| AC-AUD-008 | 日志与 run 产物：tracing 默认级别不含 args/文本明文（`DESKCTL_AUDIT_TEXT=full` 不影响日志）；run 目录位于 `%LOCALAPPDATA%\deskctl\runs\<run_id>\` 且受保留策略清理；`history --run <id>` 能取回该 run 的全部步骤记录 | 集成：开启 debug 日志后检索样例敏感值应为空；`history --run` 计数与 report 步骤数一致 |
 
 ## 11. 测试计划
 

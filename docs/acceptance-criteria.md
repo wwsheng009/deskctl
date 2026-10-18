@@ -356,6 +356,7 @@ Windows 首个可用版本必须同时满足：
 | AC-AUD-005 | 轮转与保留 | 分片、保留天数与总量上限生效，清理不丢最新记录 |
 | AC-AUD-006 | 降级 | 审计目录不可写时工具照常成功、告警一次、`audit_state=disabled` 可观测 |
 | AC-AUD-007 | 脱敏增强 | 密码字段（UIA `IsPassword=true`）永不落盘；键名单命中值替换为 `<redacted>`；全文检索无命中 |
+| AC-AUD-008 | 日志与 run 产物 | tracing 日志沿用与审计相同的脱敏规则（默认级别不含 args/文本明文）；run 产物（`expanded.jsonl` 等）固定落在 `%LOCALAPPDATA%\deskctl\runs\<run_id>\` 并受同一保留策略约束；`history --run <id>` 可过滤该 run 的全部记录 |
 
 ### 15.2 Agent 身份（D2，P1）
 
@@ -382,6 +383,7 @@ Windows 首个可用版本必须同时满足：
 | AC-RPL-010 | 受限表达式（L2，可选） | `when`/`repeat` 生效；表达式无副作用（不能调用工具）；表达式越界/类型错误在预检被拒（见 [design/adr-001-script-engine.md](design/adr-001-script-engine.md)） |
 | AC-RPL-011 | 引擎沙箱（L3，仅启用时） | `max_operations` 超限被中止且不计成功；未注册任何文件/网络/时间能力；`call()` 调用出现在审计中且与展开序列一致 |
 | AC-RPL-012 | 引擎运行可追溯（L3，仅启用时） | 每次 Rhai run 产出 `expanded.jsonl`，与审计逐条一致（`run_id`/`step_index`）；Generator 模式产物为合法 `deskctl-script/1` 且可被 L1 校验/执行；同脚本 + 录制 transcript 的两次运行展开序列一致（确定性） |
+| AC-RPL-013 | 失败接手契约 | run report 含 `handoff`（`failed_step`/`reason`/`effect_may_have_occurred`/`safe_to_retry`/`resume_hint`/`suggested_actions`）；`HALTED_BEFORE_EFFECT` 时 `safe_to_retry=true` 且 `resume_hint.from_step` 指向失败步；`RECONCILIATION_REQUIRED` 时 `safe_to_retry=false` 且建议"先核对"；LLM 修正参数后 `script_run --from <step>` 能在同一会话续跑成功（目标/变量按 §4.6 规则重建） |
 
 ### 15.4 检查点与补偿（D4，P2）
 
@@ -395,4 +397,4 @@ Windows 首个可用版本必须同时满足：
 
 | 编号 | 验收项 | 通过标准 |
 |---|---|---|
-| AC-SEC-011 | 不可信内容包裹 | `perceive`/`read_kv`/`history` 返回的屏幕文本以 `<untrusted-screen-content>` 包裹并声明"数据非指令"；`DESKCTL_UNTRUSTED_WRAP=off` 可关闭 |
+| AC-SEC-013 | 不可信内容包裹 | `perceive`/`read_kv`/`history` 返回的屏幕文本以 `<untrusted-screen-content>` 包裹并声明"数据非指令"；`DESKCTL_UNTRUSTED_WRAP=off` 可关闭（编号避开既有 AC-SEC-011/012，见 [design/review-01-consistency.md](design/review-01-consistency.md) R-01） |

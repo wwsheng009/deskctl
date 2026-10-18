@@ -59,8 +59,10 @@
   1) 取/编译 AST（LRU 缓存，key = script sha256 + feature 指纹）
   2) 起专用 OS 线程（std::thread::Builder::stack_size(8 MiB)）
        └─ 该线程内：Engine + Scope + call_script()
-  3) 起 tokio Dispatcher 任务（同一 run_id）
-       └─ 顺序消费命令通道，逐条走 Engine::execute_with_session
+3) 起 tokio Dispatcher 任务（同一 run_id）
+       └─ 顺序消费命令通道，逐条走 **StepExecutor**（与 L1 同一实现）：
+          preflight 风险/工具校验 → 目标解析与重绑（§4.4）→ 核验分级（screen/readback）
+          → Engine::execute_with_session（会话隔离/资源门/取消/审计）→ 步骤级结果
 
 [脚本线程内 call(tool, params)]
   host_fn:
@@ -80,6 +82,9 @@
 - 脚本线程是**独立 OS 线程**，它对 `recv_timeout` 的阻塞不影响 tokio；
 - Dispatcher 在 runtime 内**串行**执行本 run 的工具调用 → 与 L1 解释器行为一致（顺序、逐步审计、逐步取消检查）；
 - 禁止：在 runtime worker 内直接跑 Rhai 引擎（阻塞 worker）+ 在引擎内 `block_on` 同一 runtime（自锁）。二者均被架构排除。
+- **必须经步骤包装器（StepExecutor）**：orchestrator 的每次 `call()` 与 L1 脚本步骤走**同一条代码路径**，
+  从而继承目标重绑（`rebinds`）、核验分级、风险闸门与审计字段（`run_id`/`step_index`）。
+  禁止 Dispatcher 直接调用 `Engine::execute_with_session` 旁路上述语义（否则同一脚本出现两套行为）。
 
 ### 3.2 取消与超时
 
@@ -191,6 +196,7 @@
 | 时间/随机侧信道 | `no_time` + 不注册 `rand`；`ahash/runtime-rng` 仅影响哈希种子（不暴露给脚本） |
 | 审计伪造/绕过 | 引擎无审计写权；审计由 Dispatcher 记录真实调用；`call()` 无法伪造 `request_id` |
 | 提示注入驱动的脚本 | 脚本必须由调用方显式提供文件/参数（R6 包裹屏幕文本）；脚本 sha256 入库，可疑脚本可拉黑 |
+| 未受信文本进入写入参数（taint） | `read()`/`$steps.*`/`param` 中的屏幕文本标记 `tainted:true`；该值若出现在**写入类** `call()` 的参数里，步骤记录与审计写入 `tainted_params:true`（默认允许 + 留痕；可用 `--deny-tainted-writes` 强制拒绝）。字段名与默认值在 R2 评审定稿（见 [review-01-consistency.md](review-01-consistency.md) R-08） |
 | 供应链 | 版本锁定 + 许可证清单 + 回归沙箱用例（恶意脚本语料） |
 
 ## 12. 测试策略

@@ -150,8 +150,11 @@ JSONL：一行一条。`format` 不在每行重复，由文件头约定（文件
 
 ```json
 {"v":1,"format":"deskctl-script-run/1","script":"sap-st06-inspection","dry_run":false,
+ "run_id":"run-9a3c8f2b",
  "started":"...","finished":"...","result":"ok|failed|partial",
  "outcome":"VERIFIED|HALTED_BEFORE_EFFECT|RECONCILIATION_REQUIRED|COMPLETED_UNVERIFIED|REJECTED_POLICY|FAILED_PLATFORM|CANCELED",
+ "handoff":{"failed_step":null,"reason":null,"effect_may_have_occurred":false,"safe_to_retry":true,
+            "resume_hint":null,"suggested_actions":[]},
  "steps":[{"id":"s1","tool":"desktop_target_bind","ok":true,"dispatch_state":"sent","verification":"unknown",
            "verify_tier":"readback|screen|null","rebind":null,"retries":0,"duration_ms":38,"error":null}],
  "rebinds":[{"step":"s4","reason":"stale_target","from_hwnd":3345330,"to_hwnd":5702916,"relaunched":true}],
@@ -161,6 +164,12 @@ JSONL：一行一条。`format` 不在每行重复，由文件头约定（文件
 `result` 与 `outcome` 并存：`result` 是粗粒度（ok/failed/partial），`outcome` 是决策级分类（语义与触发
 条件见 [record-replay.md §4.5](record-replay.md#45-运行结果分类run-level-outcomer4)）。**调用方应以
 `outcome` 决定是否重跑**：`HALTED_BEFORE_EFFECT` 可直接重跑，`RECONCILIATION_REQUIRED` 必须先核对。
+
+`run_id` 与 `handoff` 是失败接手的关键字段：
+
+- `run_id`：审计记录的 `request_id` 前缀（`<run_id>:<step_index>`），配合 `history --run <run_id>` 回看已完成步骤；
+- `handoff`：`failed_step` / `reason` / `effect_may_have_occurred` / `safe_to_retry` / `resume_hint{from_step,params_patch}` / `suggested_actions[]`，
+  推导规则与续跑语义见 [record-replay.md §4.6](record-replay.md#46-失败后的接手契约handoff--resumellm人如何继续)。
 
 ### 2.6 核验定义（`verify`，R3）
 
