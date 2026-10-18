@@ -73,6 +73,7 @@ CLI/MCP ──► deskctl history      （P0：直读 audit JSONL，过滤/聚�
 | 脚本执行层选型（ADR） | [adr-001-script-engine.md](adr-001-script-engine.md) | D3 前置决策 | 自研声明式 JSON（默认）+ L2 受限表达式 + L3 Rhai（opt-in）；不选 wasm/V8/停维护方案 |
 | Rhai 集成架构（深化，L3） | [rhai-integration.md](rhai-integration.md) | L3 前置设计 | 同步桥接执行模型、宿主 API、限额默认值、审计追溯、威胁模型、R0–R3 落地 |
 | 完整性审查 01 | [review-01-consistency.md](review-01-consistency.md) | 已执行（2026-10-19） | 六域核对 + 9 项发现（R-01..R-09），7 项本轮修复、2 项实现期确认 |
+| 输入模拟增强（鼠标/键盘/拟人化） | [input-simulation.md](input-simulation.md) | I1（独立，可并行） | 相对移动、按住/释放、VK/扫描码、长按重复、拟人轨迹与节奏；**工具数不变 36** |
 
 ## 4. 里程碑与门禁
 
@@ -83,6 +84,7 @@ CLI/MCP ──► deskctl history      （P0：直读 audit JSONL，过滤/聚�
 | D2 身份（P1） | `--owner` + MCP clientInfo + 按 owner 过滤 + 可选限额 | AC-AGT-001..004 |
 | D3 录放（P1） | recorder + script_run + preflight + CLI；目标解析/指纹校验/运行时重绑（§4.4）；核验分级 `screen`/`readback`（R3，含只读工具 `desktop_file_hash`）；run-level `outcome`（R4）；失败接手契约与并发约束（§4.6/§4.7） | AC-RPL-001..014；E2E：SAP ST06 巡检录制→回放（含失败步定位、hwnd 失效重绑、readback 核验、失败接手续跑）；工具数 36 → 40 |
 | D4 检查点（P2） | checkpoint 保存/差异 + 补偿建议（dry-run 优先） | AC-TXN-001..003；工具数 40 → 42 |
+| I1 输入增强（独立） | `desktop_mouse` 新 action（move_relative/down/up）+ 拟人参数；`desktop_input` 新 mode（key/key_down/key_up）+ 键码三写法（name/vk/scan） | AC-MOUSE-012..014、AC-INPUT-009..012；工具数保持 36 |
 
 每个里程碑沿用现有工程门禁：`cargo fmt --check`、`clippy -D warnings`、`cargo test --workspace`（当前基线 59 passed）、契约重导出、真机冒烟、文档更新。
 

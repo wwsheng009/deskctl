@@ -398,3 +398,17 @@ Windows 首个可用版本必须同时满足：
 | 编号 | 验收项 | 通过标准 |
 |---|---|---|
 | AC-SEC-013 | 不可信内容包裹 | `perceive`/`read_kv`/`history` 返回的屏幕文本以 `<untrusted-screen-content>` 包裹并声明"数据非指令"；`DESKCTL_UNTRUSTED_WRAP=off` 可关闭（编号避开既有 AC-SEC-011/012，见 [design/review-01-consistency.md](design/review-01-consistency.md) R-01） |
+
+### 15.6 输入模拟增强（I1，独立，可并行）
+
+> 方案见 [design/input-simulation.md](design/input-simulation.md)。扩展现有 `desktop_mouse`/`desktop_input` 子命令与参数，**不新增工具（保持 36）**；`humanize` 默认 `off`，行为向后兼容。
+
+| 编号 | 验收项 | 通过标准 |
+|---|---|---|
+| AC-MOUSE-012 | 相对移动与按住/释放 | `move_relative` 以物理像素偏移（多屏虚拟桌面内可跨屏）；`down`→多次 `move`→`up` 可完成拖选/长按菜单；未配对的 `down` 在会话内被跟踪并在冲突调用/会话关闭时清理（无粘键） |
+| AC-MOUSE-013 | 拟人轨迹确定性 | 同 `seed`+参数两次运行点列逐点一致（单测）；实测轨迹非直线、总时长与 `speed` 偏差 ≤20%；`path_points` 回传与实际一致 |
+| AC-MOUSE-014 | 点击拟人 | `hold_ms` 生效（down/up 时差可测）；`jitter_px>0` 落点在目标元素内且距边缘 ≥2px；`double_click` 间隔受系统双击时间约束 |
+| AC-INPUT-009 | 键码三写法 | `key` 支持 `"enter"`/`"vk:0x41"`/`"scan:0x1E"`（含 `extended`）；非法写法 `invalid_params` 并附示例；`scan` 模式在记事本与远程桌面/经典应用至少各一例生效 |
+| AC-INPUT-010 | 长按与重复 | `key_down`→`key_up` 期间键保持按下（目标应用行为可证）；`repeat`+`interval_ms` 按序发送且可取消；`hotkey` 的 `hold_ms` 生效 |
+| AC-INPUT-011 | 拟人打字 | `humanize` 下逐字延迟落在配置范围（统计断言）；同 `seed` 复现同一延迟序列；`delay_ms` 固定值模式精确生效 |
+| AC-INPUT-012 | 限额与取消 | 超限（hold/repeat/interval/总时长）被拒并附范围；执行中 `request/cancel` ≤1s 生效并如实报告 `cancelled` 与已发送量 |
