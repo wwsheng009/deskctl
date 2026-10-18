@@ -20,6 +20,13 @@
 - 进程启动时声明 Per-Monitor-V2 DPI 感知（Windows 10 1703+）：鼠标输入、窗口矩形、
   UIA 边界与截图统一为物理像素坐标；150% 等缩放比例下不再需要调用方手动换算
   （旧行为为鼠标逻辑坐标与截图物理像素混用，150% 缩放下有 1.5 倍偏移）。
+- 受限启动只覆盖 Start Menu（用户/公共）与桌面目录下的 `.lnk`；`launch_ref` 只能使用
+  `desktop_targets_list` 返回的目录引用，等待窗口上限 10 秒，不请求提权（runas=false）。
+- `delivery_mode=auto/background` 依赖控件 UIA provider 的后台能力：部分 WebView2/打包
+  应用只支持前台执行，auto 会自动回退前台；provider 把成功当错误上报（0x00000000）时
+  不重复派发，避免双执行。
+- 语义树单次观察最多 2000 节点（8 秒预算）；更大的树需要更窄的 `scope` 或使用
+  `tree_cursor` 续读。`scroll` / `set_range_value` 仅在控件暴露对应 UIA 模式时可用。
 - 自定义截图路径不受沙箱限制，调用方负责路径与覆盖策略。
 - 会话关闭只清理 `%TEMP%` 下的会话截图；默认 `%LOCALAPPDATA%\deskctl\captures`
   视为持久产物，不随会话关闭删除。

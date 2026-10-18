@@ -16,12 +16,15 @@ use windows::Win32::System::Com::{
 use windows::Win32::UI::Accessibility::{
     CUIAutomation8, ExpandCollapseState_Expanded, IUIAutomation, IUIAutomation2,
     IUIAutomationElement, IUIAutomationExpandCollapsePattern, IUIAutomationInvokePattern,
+    IUIAutomationRangeValuePattern, IUIAutomationScrollItemPattern, IUIAutomationScrollPattern,
     IUIAutomationSelectionItemPattern, IUIAutomationTogglePattern, IUIAutomationTreeWalker,
-    IUIAutomationValuePattern, UIA_ButtonControlTypeId, UIA_CheckBoxControlTypeId,
-    UIA_DocumentControlTypeId, UIA_EditControlTypeId, UIA_ExpandCollapsePatternId,
-    UIA_InvokePatternId, UIA_ListControlTypeId, UIA_ListItemControlTypeId,
-    UIA_MenuBarControlTypeId, UIA_MenuControlTypeId, UIA_MenuItemControlTypeId,
-    UIA_RadioButtonControlTypeId, UIA_SelectionItemPatternId, UIA_TabControlTypeId,
+    IUIAutomationValuePattern, ScrollAmount_LargeDecrement, ScrollAmount_LargeIncrement,
+    ScrollAmount_NoAmount, ScrollAmount_SmallDecrement, ScrollAmount_SmallIncrement,
+    UIA_ButtonControlTypeId, UIA_CheckBoxControlTypeId, UIA_DocumentControlTypeId,
+    UIA_EditControlTypeId, UIA_ExpandCollapsePatternId, UIA_InvokePatternId, UIA_ListControlTypeId,
+    UIA_ListItemControlTypeId, UIA_MenuBarControlTypeId, UIA_MenuControlTypeId,
+    UIA_MenuItemControlTypeId, UIA_RadioButtonControlTypeId, UIA_RangeValuePatternId,
+    UIA_ScrollItemPatternId, UIA_ScrollPatternId, UIA_SelectionItemPatternId, UIA_TabControlTypeId,
     UIA_TabItemControlTypeId, UIA_TogglePatternId, UIA_ValuePatternId, UIA_WindowControlTypeId,
 };
 use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, IsWindow};
@@ -35,11 +38,42 @@ pub struct UiNode {
 pub enum UiaAction {
     Invoke,
     Toggle,
+    SetChecked,
     Select,
     Expand,
     Collapse,
     Focus,
     SetValue,
+    Scroll,
+    ScrollIntoView,
+    SetRangeValue,
+}
+
+/// 单次 UIA 动作的可选参数与派发约束。
+#[derive(Debug, Clone)]
+pub struct ActionOptions<'a> {
+    /// set_value / set_range_value 的目标值。
+    pub value: Option<&'a str>,
+    /// set_checked 的目标勾选状态；缺省视为 true（幂等：已满足时不点击）。
+    pub checked: Option<bool>,
+    /// scroll 的方向：up / down / left / right。
+    pub direction: Option<&'a str>,
+    /// scroll 的幅度：small（默认）/ page。
+    pub amount: Option<&'a str>,
+    /// true 时要求目标窗口处于前台（默认）；background/auto 模式传 false。
+    pub require_foreground: bool,
+}
+
+impl<'a> ActionOptions<'a> {
+    pub fn new(value: Option<&'a str>) -> Self {
+        Self {
+            value,
+            checked: None,
+            direction: None,
+            amount: None,
+            require_foreground: true,
+        }
+    }
 }
 
 pub fn observe_window(hwnd: i64, limit: usize) -> Result<Vec<UiNode>, ToolError> {
@@ -59,10 +93,10 @@ pub fn perform_action(
     hwnd: i64,
     node: &UiNode,
     action: UiaAction,
-    value: Option<&str>,
+    options: &ActionOptions<'_>,
 ) -> Result<(), ToolError> {
     let _com = ComApartment::initialize()?;
-    if unsafe { GetForegroundWindow() } != raw_handle(hwnd) {
+    if options.require_foreground && unsafe { GetForegroundWindow() } != raw_handle(hwnd) {
         return Err(ToolError::new(
             ErrorCode::StaleObservation,
             "target window is no longer foreground",
@@ -100,7 +134,7 @@ pub fn perform_action(
             .retryable(true))
         }
     };
-    dispatch(element, action, value)
+    dispatch(element, action, options)
 }
 
 struct NativeNode {
@@ -159,6 +193,7 @@ fn collect_nodes(
         .ok();
         if toggle.is_some() {
             supported.push("toggle");
+            supported.push("set_checked");
         }
         let selection = unsafe {
             element.GetCurrentPatternAs::<IUIAutomationSelectionItemPattern>(
@@ -194,6 +229,23 @@ fn collect_nodes(
         }
         if bool_or(unsafe { element.CurrentIsKeyboardFocusable() }, false) {
             supported.push("focus");
+        }
+        if supports::<IUIAutomationScrollPattern>(&element, UIA_ScrollPatternId) {
+            supported.push("scroll");
+        }
+        if supports::<IUIAutomationScrollItemPattern>(&element, UIA_ScrollItemPatternId) {
+            supported.push("scroll_into_view");
+        }
+        let range_value = unsafe {
+            element.GetCurrentPatternAs::<IUIAutomationRangeValuePattern>(UIA_RangeValuePatternId)
+        }
+        .ok();
+        if range_value.as_ref().is_some_and(|pattern| {
+            unsafe { pattern.CurrentIsReadOnly() }
+                .map(|value| !value.as_bool())
+                .unwrap_or(false)
+        }) {
+            supported.push("set_range_value");
         }
         let value_fingerprint = if secure {
             None
@@ -252,9 +304,9 @@ fn collect_nodes(
 fn dispatch(
     element: &IUIAutomationElement,
     action: UiaAction,
-    value: Option<&str>,
+    options: &ActionOptions<'_>,
 ) -> Result<(), ToolError> {
-    let result = unsafe {
+    let result: windows::core::Result<()> = unsafe {
         match action {
             UiaAction::Invoke => element
                 .GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId)
@@ -262,6 +314,21 @@ fn dispatch(
             UiaAction::Toggle => element
                 .GetCurrentPatternAs::<IUIAutomationTogglePattern>(UIA_TogglePatternId)
                 .and_then(|pattern| pattern.Toggle()),
+            UiaAction::SetChecked => {
+                let desired = options.checked.unwrap_or(true);
+                match element.GetCurrentPatternAs::<IUIAutomationTogglePattern>(UIA_TogglePatternId)
+                {
+                    Ok(pattern) => {
+                        let current = pattern.CurrentToggleState().ok().and_then(toggle_boolean);
+                        if current == Some(desired) {
+                            // 幂等：目标状态已满足时不点击。
+                            return Ok(());
+                        }
+                        pattern.Toggle()
+                    }
+                    Err(error) => Err(error),
+                }
+            }
             UiaAction::Select => element
                 .GetCurrentPatternAs::<IUIAutomationSelectionItemPattern>(
                     UIA_SelectionItemPatternId,
@@ -279,13 +346,76 @@ fn dispatch(
                 .and_then(|pattern| pattern.Collapse()),
             UiaAction::Focus => element.SetFocus(),
             UiaAction::SetValue => {
-                let value = value.ok_or_else(|| {
+                let value = options.value.ok_or_else(|| {
                     ToolError::new(ErrorCode::InvalidParams, "set_value requires value")
                 })?;
                 let value = BSTR::from(value);
                 element
                     .GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId)
                     .and_then(|pattern| pattern.SetValue(&value))
+            }
+            UiaAction::Scroll => {
+                let large = options.amount == Some("page");
+                let (horizontal, vertical) = match options.direction {
+                    Some("up") => (
+                        ScrollAmount_NoAmount,
+                        if large {
+                            ScrollAmount_LargeDecrement
+                        } else {
+                            ScrollAmount_SmallDecrement
+                        },
+                    ),
+                    Some("down") => (
+                        ScrollAmount_NoAmount,
+                        if large {
+                            ScrollAmount_LargeIncrement
+                        } else {
+                            ScrollAmount_SmallIncrement
+                        },
+                    ),
+                    Some("left") => (
+                        if large {
+                            ScrollAmount_LargeDecrement
+                        } else {
+                            ScrollAmount_SmallDecrement
+                        },
+                        ScrollAmount_NoAmount,
+                    ),
+                    Some("right") => (
+                        if large {
+                            ScrollAmount_LargeIncrement
+                        } else {
+                            ScrollAmount_SmallIncrement
+                        },
+                        ScrollAmount_NoAmount,
+                    ),
+                    _ => {
+                        return Err(ToolError::new(
+                            ErrorCode::InvalidParams,
+                            "scroll requires direction up, down, left or right",
+                        ))
+                    }
+                };
+                element
+                    .GetCurrentPatternAs::<IUIAutomationScrollPattern>(UIA_ScrollPatternId)
+                    .and_then(|pattern| pattern.Scroll(horizontal, vertical))
+            }
+            UiaAction::ScrollIntoView => element
+                .GetCurrentPatternAs::<IUIAutomationScrollItemPattern>(UIA_ScrollItemPatternId)
+                .and_then(|pattern| pattern.ScrollIntoView()),
+            UiaAction::SetRangeValue => {
+                let raw = options.value.ok_or_else(|| {
+                    ToolError::new(ErrorCode::InvalidParams, "set_range_value requires value")
+                })?;
+                let number: f64 = raw.parse().map_err(|_| {
+                    ToolError::new(
+                        ErrorCode::InvalidParams,
+                        "set_range_value value must be a number",
+                    )
+                })?;
+                element
+                    .GetCurrentPatternAs::<IUIAutomationRangeValuePattern>(UIA_RangeValuePatternId)
+                    .and_then(|pattern| pattern.SetValue(number))
             }
         }
     };

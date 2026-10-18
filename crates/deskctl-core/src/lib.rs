@@ -1,5 +1,6 @@
 //! Deskctl core: session isolation, tool invocation, profiles and diagnostics.
 
+pub mod apps;
 pub mod capture_policy;
 pub mod config;
 pub mod doctor;

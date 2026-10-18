@@ -14,7 +14,7 @@
 | M3 Daemon 与多 session | 完成 | Named Pipe daemon、session 管理、资源门 |
 | M4 MCP 服务 | 完成 | initialize / tools/list / tools/call / prompts |
 | M5 视觉与模型 | 完成 | PaddleOCR 与 YOLO 均已接入并真机验证 |
-| M6 Windows UIA 语义工具 | 部分完成 | 观察/候选/执行/验证可用；agent_step 未实现 |
+| M6 Windows UIA 语义工具 | 部分完成 | 观察/候选/执行/验证、扩展动作（set_checked/scroll/scroll_into_view/set_range_value）、内联验证与稳定采样、树分页、catalog 受限启动均可用；agent_step 未实现 |
 | M7 Skills 与 profiles | 完成 | 5 个 skills、profile 过滤、契约导出 |
 | M8 打包与发布 | 部分完成 | 运行时/模型获取、哈希校验、安装脚本与 Inno Setup 模板完成；性能基线与安全/会话矩阵（12/12，含输入串行与公平性）已实测（`scripts/perf-baseline.ps1`、`scripts/security-check.ps1`）；干净机安装、代码签名与 Windows 10 回归待发布流水线 |
 
@@ -47,6 +47,18 @@
 - `desktop_window_activate` 在后台 daemon 中可置前目标窗口（attach 前台/目标输入队列 + `SetActiveWindow` + `SwitchToThisWindow` 兜底）
 - DPI 缩放坐标统一（Per-Monitor-V2，`doctor` 报告 dpi 感知与系统 DPI）：150% 缩放下以
   物理像素坐标直接双击桌面图标命中；窗口枚举/截图/UIA 与鼠标共用同一坐标系
+- 语义扩展动作（AC-SEM-013）：`set_checked` 幂等实测（WebView2 开关 toggled=false 时不点击）；
+  `scroll`（document，direction/amount）派发成功；`scroll_into_view`/`set_range_value` 已实现
+- 内联验证与提交策略（AC-SEM-014/015）：`completion_policy=verified` + `expectation`
+  （`expected` 双向语义）实测 satisfied；应用未反映变更时返回 unsatisfied 不冒充成功；
+  `stable_samples=2` 连续采样生效；超时未达稳定次数返回 unknown
+- 树分页（AC-SEM-016）：Clash Verge 首页 `tree_count=236`；第一页 200 节点 +
+  `next_tree_cursor=t:200`，第二页 36 节点、同一 `observation_token`、两页无重叠
+- 受限启动（AC-SEM-017）：`desktop_targets_list` 查询命中本地 catalog（`app:x:<hash>`，
+  仅 Start Menu/桌面 `.lnk`）；`desktop_target_bind` 对未运行的 WezTerm 启动（pid/hwnd）
+  并完成绑定，Alt+F4 关闭验证；`desktop_input`/`desktop_semantic_action` 的 `launch_ref` 就位
+- 投递模式（AC-SEM-018）：`delivery_mode=auto` 实测后台优先、失败自动回退前台且执行成功；
+  provider 报 0x00000000（成功却报错）时不重复派发
 
 ## 3. 测试状态
 
@@ -54,9 +66,9 @@
 
 ```text
 deskctl-cli:      13 passed（cli_contract 3、mcp_smoke 3、skills_contract 1、tool_contract 6）
-deskctl-core:     17 passed（lib 11、path_policy 2、session_isolation 4）
+deskctl-core:     24 passed（lib 18、path_policy 2、session_isolation 4）
 deskctl-protocol:  3 passed
-合计:             33 passed, 0 failed
+合计:             40 passed, 0 failed
 ```
 
 `cargo fmt --all -- --check` 与 `cargo clippy --workspace --all-targets -- -D warnings` 均无告警
@@ -77,6 +89,8 @@ deskctl-protocol:  3 passed
 - dict_name 路径穿越拒绝（path_policy）
 - session 隔离、关闭后 token 失效、会话上限 resource_busy（session_isolation）
 - MCP 未初始化拒绝 tools/list、协议版本校验、notifications/cancelled 取消等待
+- 扩展动作/树游标/delivery 解析（tools::semantic 单测）
+- 应用 catalog：仅收 .lnk、`app_ref` 稳定且不可伪造、未知 ref 拒绝、扫描上限（apps 单测）
 
 ## 4. 运行时资源
 
@@ -146,6 +160,9 @@ pwsh scripts/fetch-models.ps1
 - AC-CLIP
 - AC-SEM-001/002/003/004/005/007/008/009/010/011
 - AC-SEM-006（真机 smoke：保存 locator 后 `desktop_semantic_action` 重放）
+- AC-SEM-013/014/015/016/017/018（真机 smoke：幂等 set_checked、expected 双向语义+稳定采样+
+  unsatisfied 不冒充成功、tree_cursor 两页续读无重叠、catalog 受限启动并绑定/关闭、
+  delivery_mode=auto 后台优先+前台回退）
 - AC-PER-003（OCR/YOLO 合并去重 smoke）
 - AC-SESS-001/002/004/005/006
 - AC-SESS-003/009（安全脚本实测：8 并发输入串行、0 失败、p50=708ms/max=1129ms 无饥饿）

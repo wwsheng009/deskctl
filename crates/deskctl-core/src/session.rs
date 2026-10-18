@@ -51,11 +51,15 @@ pub struct TargetBinding {
 pub enum SemanticActionKind {
     Invoke,
     Toggle,
+    SetChecked,
     Select,
     Expand,
     Collapse,
     Focus,
     SetValue,
+    Scroll,
+    ScrollIntoView,
+    SetRangeValue,
 }
 
 impl SemanticActionKind {
@@ -63,11 +67,15 @@ impl SemanticActionKind {
         match self {
             Self::Invoke => "invoke",
             Self::Toggle => "toggle",
+            Self::SetChecked => "set_checked",
             Self::Select => "select",
             Self::Expand => "expand",
             Self::Collapse => "collapse",
             Self::Focus => "focus",
             Self::SetValue => "set_value",
+            Self::Scroll => "scroll",
+            Self::ScrollIntoView => "scroll_into_view",
+            Self::SetRangeValue => "set_range_value",
         }
     }
 }
@@ -94,6 +102,9 @@ pub struct ObservationState {
     pub created_at: Option<Instant>,
     pub candidates: HashMap<String, Candidate>,
     pub nodes: Vec<Value>,
+    /// delivery preference recorded at observe time; executing tools default to
+    /// this mode when the call does not pass its own `delivery_mode`.
+    pub preferred_delivery: Option<String>,
 }
 
 pub struct Session {

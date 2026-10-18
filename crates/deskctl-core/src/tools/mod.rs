@@ -380,7 +380,16 @@ fn input(session: &Session, args: &Value) -> Result<ToolExecution, ToolError> {
     if !matches!(mode, "type" | "hotkey") {
         return Err(invalid("mode must be type or hotkey"));
     }
-    let hwnd = resolve_input_target(session, args)?;
+    let hwnd = match resolve_input_target(session, args) {
+        Ok(hwnd) => hwnd,
+        Err(error) => match args.get("launch_ref").and_then(Value::as_str) {
+            Some(launch_ref) => match relaunch_and_retry_input(session, args, launch_ref) {
+                Ok(hwnd) => hwnd,
+                Err(_) => return Err(error),
+            },
+            None => return Err(error),
+        },
+    };
     if let Some(hwnd) = hwnd {
         ensure_foreground(hwnd)?;
     }
@@ -442,6 +451,41 @@ fn input(session: &Session, args: &Value) -> Result<ToolExecution, ToolError> {
         json!({ "mode": mode, "dispatch_state": "sent" }),
         DispatchState::Sent,
     ))
+}
+
+/// 目标窗口缺失时，用 catalog 引用重启应用并重试定位；只接受
+/// desktop_targets_list 返回的 app_ref，绝不接受任意可执行路径。
+fn relaunch_and_retry_input(
+    session: &Session,
+    args: &Value,
+    launch_ref: &str,
+) -> Result<Option<i64>, ToolError> {
+    let entry = crate::apps::find(launch_ref).ok_or_else(|| {
+        ToolError::new(
+            ErrorCode::InvalidParams,
+            "launch_ref must be an app_ref returned by desktop_targets_list",
+        )
+        .retryable(false)
+    })?;
+    let pid = crate::apps::launch(&entry)?;
+    let Some(hwnd) =
+        crate::apps::wait_for_window(pid, &entry.name, std::time::Duration::from_millis(10_000))?
+    else {
+        return Err(ToolError::new(
+            ErrorCode::TargetUnavailable,
+            format!(
+                "launched '{}' (pid {pid}) but no window appeared within 10s",
+                entry.name
+            ),
+        )
+        .details(json!({ "pid": pid }))
+        .retryable(false));
+    };
+    platform::window_info(hwnd)?;
+    match resolve_input_target(session, args) {
+        Ok(Some(resolved)) => Ok(Some(resolved)),
+        _ => Ok(Some(hwnd)),
+    }
 }
 
 fn clipboard_write(args: &Value) -> Result<ToolExecution, ToolError> {
@@ -851,6 +895,7 @@ fn targets_list(args: &Value) -> Result<ToolExecution, ToolError> {
             "app_ref": format!("app:{pid}:{}", sanitize_ref(process)),
             "window_ref": format!("win:{hwnd}"),
             "app_id": format!("{}:{pid}", sanitize_ref(process)),
+            "kind": "window",
             "name": process,
             "title": title,
             "hwnd": hwnd,
@@ -858,6 +903,32 @@ fn targets_list(args: &Value) -> Result<ToolExecution, ToolError> {
             "size": { "width": window["width"], "height": window["height"] },
             "foreground": window["foreground"]
         }));
+    }
+    if !query.is_empty() {
+        let running: Vec<String> = platform::windows_list()?
+            .iter()
+            .filter_map(|window| window["process_name"].as_str().map(str::to_string))
+            .collect();
+        for entry in crate::apps::catalog() {
+            if !entry.name.to_lowercase().contains(&query) {
+                continue;
+            }
+            let running_now = entry
+                .target_exe
+                .as_deref()
+                .is_some_and(|exe| running.iter().any(|name| name.eq_ignore_ascii_case(exe)));
+            rows.push(json!({
+                "app_ref": entry.app_ref,
+                "window_ref": Value::Null,
+                "app_id": entry.app_ref,
+                "kind": "app",
+                "name": entry.name,
+                "title": Value::Null,
+                "source": entry.source,
+                "target_exe": entry.target_exe,
+                "running": running_now
+            }));
+        }
     }
     rows.sort_by(|left, right| {
         left["name"]
@@ -889,55 +960,61 @@ fn target_bind(session: &Session, args: &Value) -> Result<ToolExecution, ToolErr
             "delivery_mode must be foreground, auto or background",
         ));
     }
-    let (pid, app_name) = parse_app_ref(app_ref)?;
-    let windows = platform::windows_list()?;
-    let matching: Vec<Value> = windows
-        .into_iter()
-        .filter(|window| {
-            window["process_id"].as_u64() == Some(u64::from(pid))
-                && window["process_name"]
-                    .as_str()
-                    .is_some_and(|name| sanitize_ref(name) == app_name)
-        })
-        .collect();
-    let selected = if let Some(window_ref) = window_ref {
-        let hwnd = window_ref
-            .strip_prefix("win:")
-            .ok_or_else(|| invalid("window_ref must come from desktop_targets_list"))?
-            .parse::<i64>()
-            .map_err(|_| invalid("window_ref is malformed"))?;
-        matching
-            .into_iter()
-            .find(|window| window["hwnd"].as_i64() == Some(hwnd))
-            .ok_or_else(|| {
-                ToolError::new(
-                    ErrorCode::TargetUnavailable,
-                    "window_ref is not part of the selected app_ref",
-                )
-                .retryable(true)
-            })?
+    let mut launched_pid: Option<u32> = None;
+    let selected = if let Some(entry) = crate::apps::find(app_ref) {
+        // 本地应用目录引用：运行中则绑定窗口，未运行则受限启动后绑定。
+        resolve_catalog_target(entry, window_ref, &mut launched_pid)?
     } else {
-        match matching.as_slice() {
-            [one] => one.clone(),
-            [] => {
-                return Err(ToolError::new(
-                    ErrorCode::TargetUnavailable,
-                    "no running window matches app_ref; launch it outside Deskctl and list targets again",
-                )
-                .retryable(true))
-            }
-            _ => {
-                return Err(ToolError::new(
-                    ErrorCode::TargetUnavailable,
-                    "app_ref has multiple windows; select one explicitly with window_ref",
-                )
-                .details(json!({
-                    "windows": matching.iter().map(|window| json!({
-                        "window_ref": format!("win:{}", window["hwnd"].as_i64().unwrap_or_default()),
-                        "title": window["title"]
-                    })).collect::<Vec<_>>()
-                }))
-                .retryable(true))
+        let (pid, app_name) = parse_app_ref(app_ref)?;
+        let windows = platform::windows_list()?;
+        let matching: Vec<Value> = windows
+            .into_iter()
+            .filter(|window| {
+                window["process_id"].as_u64() == Some(u64::from(pid))
+                    && window["process_name"]
+                        .as_str()
+                        .is_some_and(|name| sanitize_ref(name) == app_name)
+            })
+            .collect();
+        if let Some(window_ref) = window_ref {
+            let hwnd = window_ref
+                .strip_prefix("win:")
+                .ok_or_else(|| invalid("window_ref must come from desktop_targets_list"))?
+                .parse::<i64>()
+                .map_err(|_| invalid("window_ref is malformed"))?;
+            matching
+                .into_iter()
+                .find(|window| window["hwnd"].as_i64() == Some(hwnd))
+                .ok_or_else(|| {
+                    ToolError::new(
+                        ErrorCode::TargetUnavailable,
+                        "window_ref is not part of the selected app_ref",
+                    )
+                    .retryable(true)
+                })?
+        } else {
+            match matching.as_slice() {
+                [one] => one.clone(),
+                [] => {
+                    return Err(ToolError::new(
+                        ErrorCode::TargetUnavailable,
+                        "no running window matches app_ref; use an app_ref from the local app catalog to launch it",
+                    )
+                    .retryable(true))
+                }
+                _ => {
+                    return Err(ToolError::new(
+                        ErrorCode::TargetUnavailable,
+                        "app_ref has multiple windows; select one explicitly with window_ref",
+                    )
+                    .details(json!({
+                        "windows": matching.iter().map(|window| json!({
+                            "window_ref": format!("win:{}", window["hwnd"].as_i64().unwrap_or_default()),
+                            "title": window["title"]
+                        })).collect::<Vec<_>>()
+                    }))
+                    .retryable(true))
+                }
             }
         }
     };
@@ -974,10 +1051,89 @@ fn target_bind(session: &Session, args: &Value) -> Result<ToolExecution, ToolErr
             "hwnd": hwnd,
             "title": title,
             "foreground": foreground,
-            "delivery_mode": delivery_mode
+            "delivery_mode": delivery_mode,
+            "launched": launched_pid.is_some(),
+            "pid": launched_pid
         }),
         DispatchState::Sent,
     ))
+}
+
+fn resolve_catalog_target(
+    entry: crate::apps::AppEntry,
+    window_ref: Option<&str>,
+    launched_pid: &mut Option<u32>,
+) -> Result<Value, ToolError> {
+    let matching: Vec<Value> = platform::windows_list()?
+        .into_iter()
+        .filter(|window| window_matches_entry(window, &entry))
+        .collect();
+    if matching.is_empty() {
+        // 应用未运行：受限启动（只接受 catalog 返回的引用，不接受任意路径）。
+        let pid = crate::apps::launch(&entry)?;
+        *launched_pid = Some(pid);
+        let hwnd = crate::apps::wait_for_window(
+            pid,
+            &entry.name,
+            std::time::Duration::from_millis(10_000),
+        )?
+        .ok_or_else(|| {
+            ToolError::new(
+                ErrorCode::TargetUnavailable,
+                format!(
+                    "launched '{}' (pid {pid}) but no window appeared within 10s",
+                    entry.name
+                ),
+            )
+            .details(json!({ "pid": pid }))
+            .retryable(false)
+        })?;
+        return platform::window_info(hwnd);
+    }
+    if let Some(window_ref) = window_ref {
+        let hwnd = window_ref
+            .strip_prefix("win:")
+            .ok_or_else(|| invalid("window_ref must come from desktop_targets_list"))?
+            .parse::<i64>()
+            .map_err(|_| invalid("window_ref is malformed"))?;
+        return matching
+            .into_iter()
+            .find(|window| window["hwnd"].as_i64() == Some(hwnd))
+            .ok_or_else(|| {
+                ToolError::new(
+                    ErrorCode::TargetUnavailable,
+                    "window_ref is not part of the selected app_ref",
+                )
+                .retryable(true)
+            });
+    }
+    match matching.as_slice() {
+        [one] => Ok(one.clone()),
+        [] => unreachable!("empty matching handled above"),
+        _ => Err(ToolError::new(
+            ErrorCode::TargetUnavailable,
+            "app_ref has multiple windows; select one explicitly with window_ref",
+        )
+        .details(json!({
+            "windows": matching.iter().map(|window| json!({
+                "window_ref": format!("win:{}", window["hwnd"].as_i64().unwrap_or_default()),
+                "title": window["title"]
+            })).collect::<Vec<_>>()
+        }))
+        .retryable(true)),
+    }
+}
+
+fn window_matches_entry(window: &Value, entry: &crate::apps::AppEntry) -> bool {
+    if let (Some(exe), Some(name)) = (entry.target_exe.as_deref(), window["process_name"].as_str())
+    {
+        if name.eq_ignore_ascii_case(exe) {
+            return true;
+        }
+    }
+    window["title"]
+        .as_str()
+        .is_some_and(|title| title.to_lowercase().contains(&entry.name.to_lowercase()))
 }
 
 fn store_capture(

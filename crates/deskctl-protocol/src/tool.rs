@@ -289,7 +289,7 @@ impl ToolName {
             ),
             Self::TargetsList => meta(
                 "desktop_targets_list",
-                "List running windows and local application targets.",
+                "List running windows; a query also matches launchable app refs from the local shortcut catalog.",
                 RiskClass::ReadOnly,
                 true,
                 false,
@@ -297,7 +297,7 @@ impl ToolName {
             ),
             Self::TargetBind => meta(
                 "desktop_target_bind",
-                "Bind a target application or window and return a target token.",
+                "Bind a running window, or launch a catalogued local app and bind its window, returning a target token.",
                 RiskClass::Reversible,
                 false,
                 false,
@@ -305,7 +305,7 @@ impl ToolName {
             ),
             Self::SemanticObserve => meta(
                 "desktop_semantic_observe",
-                "Read the Windows UIA tree and candidate actions for a bound target.",
+                "Read the Windows UIA tree and candidate actions for a bound target; tree_cursor continues the native tree page, delivery_mode becomes the default for later actions.",
                 RiskClass::ReadOnly,
                 true,
                 false,
@@ -321,7 +321,7 @@ impl ToolName {
             ),
             Self::SemanticExecute => meta(
                 "desktop_semantic_execute",
-                "Execute an observation-bound semantic candidate.",
+                "Execute an observation-bound semantic candidate; supports checked/direction/amount and completion_policy with inline expectation verification.",
                 RiskClass::ExternalCommit,
                 false,
                 true,
@@ -329,7 +329,7 @@ impl ToolName {
             ),
             Self::SemanticAction => meta(
                 "desktop_semantic_action",
-                "Execute a saved semantic locator without a temporary observation token.",
+                "Execute a saved semantic locator (invoke/toggle/set_checked/select/expand/collapse/focus/set_value/scroll/scroll_into_view/set_range_value) with delivery mode, optional launch_ref and inline expectation verification.",
                 RiskClass::ExternalCommit,
                 false,
                 true,
@@ -337,7 +337,7 @@ impl ToolName {
             ),
             Self::VerifyState => meta(
                 "desktop_verify_state",
-                "Verify a semantic postcondition without repeating the action.",
+                "Verify a semantic postcondition with bounded waiting and stable sampling; never repeats the action.",
                 RiskClass::ReadOnly,
                 true,
                 false,

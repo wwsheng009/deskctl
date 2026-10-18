@@ -146,6 +146,12 @@
 | AC-SEM-010 | 跨 session | 一个 session 的 token 不能用于另一个 session |
 | AC-SEM-011 | 无审批 | 关键动作不弹出批准请求；结果带风险元数据 |
 | AC-SEM-012 | 可选增强 | `desktop_agent_step` 未启用时不出现在工具列表 |
+| AC-SEM-013 | 扩展动作 | `set_checked` 幂等（目标状态已满足时不点击）；`scroll`（`direction` + `amount=small/page`）、`scroll_into_view`、`set_range_value` 在支持对应 UIA 模式的控件上生效 |
+| AC-SEM-014 | 提交策略与内联验证 | `completion_policy=auto/verified/dispatched` 生效；携带 `expectation` 时动作后做有界验证并返回 `verification/satisfied`；`expected=false` 反向语义生效；`verified` 缺少 `expectation` 被拒绝；`unsatisfied` 不冒充成功 |
+| AC-SEM-015 | 稳定采样 | `expectation.stable_samples`（1..5，默认 2）生效：连续采样一致才返回 `satisfied`；超时未达到稳定次数返回 `unknown` |
+| AC-SEM-016 | 树分页 | observe 返回 `next_tree_cursor`（格式 `t:<n>`）；携带 `tree_cursor` 与同一 `observation_token` 可续读原生树，不重新采集 |
+| AC-SEM-017 | 受限启动 | `app_ref` 只能来自本地快捷方式目录（Start Menu/桌面）生成的 catalog 引用；`target_bind` 对未运行的应用可启动并等待窗口（≤10s）后绑定；`desktop_input`/`desktop_semantic_action` 支持 `launch_ref` 重启缺失窗口；拒绝任意可执行路径/脚本 |
+| AC-SEM-018 | 投递模式 | `delivery_mode=auto` 优先后台执行、必要时回退前台且不重复派发；`background` 不抢前台，失败即返回结构化错误 |
 
 ## 4. 多会话与状态验收
 

@@ -47,7 +47,7 @@ fn locator() -> Value {
             },
             "supported_action": {
                 "type": "string",
-                "enum": ["invoke","toggle","select","expand","collapse","focus","set_value"]
+                "enum": ["invoke","toggle","set_checked","select","expand","collapse","focus","set_value","scroll","scroll_into_view","set_range_value"]
             },
             "ordinal_hint": { "type": "integer", "minimum": 0, "maximum": 65535 }
         },
@@ -67,7 +67,8 @@ fn expectation() -> Value {
             },
             "expected": { "type": "boolean", "default": true },
             "value": { "type": "string" },
-            "timeout_ms": { "type": "integer", "minimum": 0, "maximum": 300000, "default": 5000 }
+            "timeout_ms": { "type": "integer", "minimum": 0, "maximum": 300000, "default": 5000 },
+            "stable_samples": { "type": "integer", "minimum": 1, "maximum": 5, "default": 2 }
         },
         "required": ["locator", "condition"],
         "additionalProperties": false
@@ -109,6 +110,7 @@ pub fn input_schema(name: ToolName) -> Value {
                 "mode": { "type": "string", "enum": ["type","hotkey"] },
                 "target_locator": locator(),
                 "hwnd": { "type": "integer" },
+                "launch_ref": { "type": "string", "description": "Optional app_ref from desktop_targets_list; relaunches the app when the target window is missing" },
                 "text": { "type": "string", "maxLength": 65536 },
                 "send": { "type": "string", "enum": ["enter","ctrl+enter","tab","none"], "default": "enter" },
                 "keys": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
@@ -253,7 +255,9 @@ pub fn input_schema(name: ToolName) -> Value {
                 "subtree_id": { "type": "string" },
                 "observation_token": { "type": "string" },
                 "cursor": { "type": "integer", "minimum": 0 },
-                "view": { "type": "string", "enum": ["candidates","regions"] }
+                "view": { "type": "string", "enum": ["candidates","regions"] },
+                "tree_cursor": { "type": "string", "description": "Continue reading the native UIA tree from next_tree_cursor without re-capturing" },
+                "delivery_mode": { "type": "string", "enum": ["foreground","auto","background"], "default": "foreground" }
             }),
             &[],
         ),
@@ -269,16 +273,27 @@ pub fn input_schema(name: ToolName) -> Value {
                 "observation_token": { "type": "string" },
                 "candidate_id": { "type": "string" },
                 "value": { "type": "string", "maxLength": 16384 },
-                "delivery_mode": { "type": "string", "enum": ["foreground","auto","background"], "default": "foreground" }
+                "delivery_mode": { "type": "string", "enum": ["foreground","auto","background"], "default": "foreground" },
+                "checked": { "type": "boolean", "description": "Desired state for set_checked; already-satisfied targets are not clicked" },
+                "direction": { "type": "string", "enum": ["up","down","left","right"] },
+                "amount": { "type": "string", "enum": ["small","page"], "default": "small" },
+                "completion_policy": { "type": "string", "enum": ["auto","verified","dispatched"], "default": "auto" },
+                "expectation": expectation()
             }),
             &["observation_token", "candidate_id"],
         ),
         ToolName::SemanticAction => object(
             json!({
                 "locator": locator(),
-                "action": { "type": "string", "enum": ["invoke","toggle","select","expand","collapse","focus","set_value"] },
+                "action": { "type": "string", "enum": ["invoke","toggle","set_checked","select","expand","collapse","focus","set_value","scroll","scroll_into_view","set_range_value"] },
+                "launch_ref": { "type": "string", "description": "Optional app_ref from desktop_targets_list; relaunches the app when the locator window is missing" },
                 "value": { "type": "string", "maxLength": 16384 },
-                "delivery_mode": { "type": "string", "enum": ["foreground","auto","background"], "default": "foreground" }
+                "delivery_mode": { "type": "string", "enum": ["foreground","auto","background"], "default": "foreground" },
+                "checked": { "type": "boolean", "description": "Desired state for set_checked; already-satisfied targets are not clicked" },
+                "direction": { "type": "string", "enum": ["up","down","left","right"] },
+                "amount": { "type": "string", "enum": ["small","page"], "default": "small" },
+                "completion_policy": { "type": "string", "enum": ["auto","verified","dispatched"], "default": "auto" },
+                "expectation": expectation()
             }),
             &["locator", "action"],
         ),

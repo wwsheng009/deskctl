@@ -17,7 +17,9 @@ mod imp {
         drag, hotkey, is_valid_key, key_to_vk, mouse_click, mouse_move, mouse_position,
         mouse_scroll, type_text,
     };
-    pub use super::windows::uia::{observe_window, perform_action, UiNode, UiaAction};
+    pub use super::windows::uia::{
+        observe_window, perform_action, ActionOptions, UiNode, UiaAction,
+    };
     pub use super::windows::window::{
         activate_window, find_window_by_title, move_window, resize_window, window_info,
         windows_list,
@@ -141,11 +143,23 @@ mod imp {
     pub enum UiaAction {
         Invoke,
         Toggle,
+        SetChecked,
         Select,
         Expand,
         Collapse,
         Focus,
         SetValue,
+        Scroll,
+        ScrollIntoView,
+        SetRangeValue,
+    }
+    #[derive(Debug, Clone)]
+    pub struct ActionOptions<'a> {
+        pub value: Option<&'a str>,
+        pub checked: Option<bool>,
+        pub direction: Option<&'a str>,
+        pub amount: Option<&'a str>,
+        pub require_foreground: bool,
     }
     pub fn observe_window(_hwnd: i64, _limit: usize) -> Result<Vec<UiNode>, ToolError> {
         Err(unsupported())
@@ -154,7 +168,7 @@ mod imp {
         _hwnd: i64,
         _node: &UiNode,
         _action: UiaAction,
-        _value: Option<&str>,
+        _options: &ActionOptions<'_>,
     ) -> Result<(), ToolError> {
         Err(unsupported())
     }
