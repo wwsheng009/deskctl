@@ -27,6 +27,11 @@
   不重复派发，避免双执行。
 - 语义树单次观察最多 2000 节点（8 秒预算）；更大的树需要更窄的 `scope` 或使用
   `tree_cursor` 续读。`scroll` / `set_range_value` 仅在控件暴露对应 UIA 模式时可用。
+- 鼠标点击在携带 `hwnd` 或 capture 引用时默认做遮挡检测：目标点被其它进程窗口覆盖会
+  返回 `target_unavailable` + `occluded_by`（`allow_occluded=true` 可跳过；任务栏按钮
+  不视为遮挡）。遮挡检测是"防误点"，不是安全边界。
+- 语义动作 `delivery_mode` 默认 `auto`（后台优先、失败回退前台）；`restore_foreground=true`
+  时动作后尽力还原原前台窗口，受 Windows 前台锁影响可能失败，结果字段如实返回。
 - 自定义截图路径不受沙箱限制，调用方负责路径与覆盖策略。
 - 会话关闭只清理 `%TEMP%` 下的会话截图；默认 `%LOCALAPPDATA%\deskctl\captures`
   视为持久产物，不随会话关闭删除。

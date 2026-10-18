@@ -88,7 +88,8 @@ pub fn input_schema(name: ToolName) -> Value {
                 "button": { "type": "string", "enum": ["left","right","middle"], "default": "left" },
                 "clicks": { "type": "integer", "minimum": 1, "maximum": 2, "default": 1 },
                 "direction": { "type": "string", "enum": ["up","down","left","right"] },
-                "amount": { "type": "integer", "minimum": 1, "maximum": 100, "default": 3 }
+                "amount": { "type": "integer", "minimum": 1, "maximum": 100, "default": 3 },
+                "allow_occluded": { "type": "boolean", "default": false, "description": "Force a click whose target point is occluded by a different window" }
             }),
             &["action"],
         ),
@@ -257,7 +258,7 @@ pub fn input_schema(name: ToolName) -> Value {
                 "cursor": { "type": "integer", "minimum": 0 },
                 "view": { "type": "string", "enum": ["candidates","regions"] },
                 "tree_cursor": { "type": "string", "description": "Continue reading the native UIA tree from next_tree_cursor without re-capturing" },
-                "delivery_mode": { "type": "string", "enum": ["foreground","auto","background"], "default": "foreground" }
+                "delivery_mode": { "type": "string", "enum": ["foreground","auto","background"], "default": "auto" }
             }),
             &[],
         ),
@@ -273,12 +274,13 @@ pub fn input_schema(name: ToolName) -> Value {
                 "observation_token": { "type": "string" },
                 "candidate_id": { "type": "string" },
                 "value": { "type": "string", "maxLength": 16384 },
-                "delivery_mode": { "type": "string", "enum": ["foreground","auto","background"], "default": "foreground" },
+                "delivery_mode": { "type": "string", "enum": ["foreground","auto","background"], "default": "auto" },
                 "checked": { "type": "boolean", "description": "Desired state for set_checked; already-satisfied targets are not clicked" },
                 "direction": { "type": "string", "enum": ["up","down","left","right"] },
                 "amount": { "type": "string", "enum": ["small","page"], "default": "small" },
                 "completion_policy": { "type": "string", "enum": ["auto","verified","dispatched"], "default": "auto" },
-                "expectation": expectation()
+                "expectation": expectation(),
+                "restore_foreground": { "type": "boolean", "default": false, "description": "Restore the pre-action foreground window after the action (best effort)" }
             }),
             &["observation_token", "candidate_id"],
         ),
@@ -288,12 +290,13 @@ pub fn input_schema(name: ToolName) -> Value {
                 "action": { "type": "string", "enum": ["invoke","toggle","set_checked","select","expand","collapse","focus","set_value","scroll","scroll_into_view","set_range_value"] },
                 "launch_ref": { "type": "string", "description": "Optional app_ref from desktop_targets_list; relaunches the app when the locator window is missing" },
                 "value": { "type": "string", "maxLength": 16384 },
-                "delivery_mode": { "type": "string", "enum": ["foreground","auto","background"], "default": "foreground" },
+                "delivery_mode": { "type": "string", "enum": ["foreground","auto","background"], "default": "auto" },
                 "checked": { "type": "boolean", "description": "Desired state for set_checked; already-satisfied targets are not clicked" },
                 "direction": { "type": "string", "enum": ["up","down","left","right"] },
                 "amount": { "type": "string", "enum": ["small","page"], "default": "small" },
                 "completion_policy": { "type": "string", "enum": ["auto","verified","dispatched"], "default": "auto" },
-                "expectation": expectation()
+                "expectation": expectation(),
+                "restore_foreground": { "type": "boolean", "default": false, "description": "Restore the pre-action foreground window after the action (best effort)" }
             }),
             &["locator", "action"],
         ),

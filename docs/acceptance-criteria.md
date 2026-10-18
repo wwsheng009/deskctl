@@ -151,7 +151,9 @@
 | AC-SEM-015 | 稳定采样 | `expectation.stable_samples`（1..5，默认 2）生效：连续采样一致才返回 `satisfied`；超时未达到稳定次数返回 `unknown` |
 | AC-SEM-016 | 树分页 | observe 返回 `next_tree_cursor`（格式 `t:<n>`）；携带 `tree_cursor` 与同一 `observation_token` 可续读原生树，不重新采集 |
 | AC-SEM-017 | 受限启动 | `app_ref` 只能来自本地快捷方式目录（Start Menu/桌面）生成的 catalog 引用；`target_bind` 对未运行的应用可启动并等待窗口（≤10s）后绑定；`desktop_input`/`desktop_semantic_action` 支持 `launch_ref` 重启缺失窗口；拒绝任意可执行路径/脚本 |
-| AC-SEM-018 | 投递模式 | `delivery_mode=auto` 优先后台执行、必要时回退前台且不重复派发；`background` 不抢前台，失败即返回结构化错误 |
+| AC-SEM-018 | 投递模式 | 语义动作 `delivery_mode` 默认 `auto`：优先后台执行、必要时回退前台且不重复派发；`background` 不抢前台，失败即返回结构化错误；`foreground` 仍可显式要求 |
+| AC-SEM-019 | 前台还原 | `restore_foreground=true` 时语义动作结束后尽力还原动作前的前台窗口，结果字段如实返回（受前台锁影响允许失败） |
+| AC-MOUSE-011 | 遮挡保护 | 携带 `hwnd`/capture 引用的点击在目标点被其它进程窗口遮挡时返回 `target_unavailable` + `occluded_by`，不误点；`allow_occluded=true` 可强制 |
 
 ## 4. 多会话与状态验收
 

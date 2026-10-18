@@ -57,8 +57,12 @@
 - 受限启动（AC-SEM-017）：`desktop_targets_list` 查询命中本地 catalog（`app:x:<hash>`，
   仅 Start Menu/桌面 `.lnk`）；`desktop_target_bind` 对未运行的 WezTerm 启动（pid/hwnd）
   并完成绑定，Alt+F4 关闭验证；`desktop_input`/`desktop_semantic_action` 的 `launch_ref` 就位
-- 投递模式（AC-SEM-018）：`delivery_mode=auto` 实测后台优先、失败自动回退前台且执行成功；
-  provider 报 0x00000000（成功却报错）时不重复派发
+- 投递模式（AC-SEM-018，默认 auto）：实测后台优先、失败自动回退前台且执行成功；provider
+  报 0x00000000（成功却报错）时不重复派发；前后台能力矩阵见 architecture.md §11.7
+- 前台还原（AC-SEM-019）：`restore_foreground=true` 实测——动作后前台由目标窗口还原为
+  Windows Terminal（显式 `foreground` 与默认 `auto` 两种模式均通过）
+- 鼠标遮挡保护（AC-MOUSE-011）：capture 元素点击在目标点被 TOPMOST 终端窗口覆盖时返回
+  `target_unavailable` + `occluded_by=WindowsTerminal.exe`；`allow_occluded=true` 强制执行成功
 
 ## 3. 测试状态
 
@@ -160,9 +164,9 @@ pwsh scripts/fetch-models.ps1
 - AC-CLIP
 - AC-SEM-001/002/003/004/005/007/008/009/010/011
 - AC-SEM-006（真机 smoke：保存 locator 后 `desktop_semantic_action` 重放）
-- AC-SEM-013/014/015/016/017/018（真机 smoke：幂等 set_checked、expected 双向语义+稳定采样+
-  unsatisfied 不冒充成功、tree_cursor 两页续读无重叠、catalog 受限启动并绑定/关闭、
-  delivery_mode=auto 后台优先+前台回退）
+- AC-SEM-013/014/015/016/017/018/019、AC-MOUSE-011（真机 smoke：幂等 set_checked、expected
+  双向语义+稳定采样+unsatisfied 不冒充成功、tree_cursor 两页续读无重叠、catalog 受限启动
+  并绑定/关闭、delivery_mode 后台优先+前台回退、restore_foreground 还原、点击遮挡阻断/强制）
 - AC-PER-003（OCR/YOLO 合并去重 smoke）
 - AC-SESS-001/002/004/005/006
 - AC-SESS-003/009（安全脚本实测：8 并发输入串行、0 失败、p50=708ms/max=1129ms 无饥饿）

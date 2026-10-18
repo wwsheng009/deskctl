@@ -1,18 +1,18 @@
 use deskctl_protocol::{ErrorCode, ToolError};
 use serde_json::{json, Value};
 use windows::core::PWSTR;
-use windows::Win32::Foundation::{BOOL, HWND, LPARAM, RECT};
+use windows::Win32::Foundation::{BOOL, HWND, LPARAM, POINT, RECT};
 use windows::Win32::System::Threading::{
     AttachThreadInput, GetCurrentThreadId, OpenProcess, QueryFullProcessImageNameW,
     PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::SetActiveWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
-    BringWindowToTop, EnumWindows, GetClassNameW, GetForegroundWindow, GetWindowRect,
+    BringWindowToTop, EnumWindows, GetAncestor, GetClassNameW, GetForegroundWindow, GetWindowRect,
     GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow,
     IsWindowVisible, SetForegroundWindow, SetWindowPos, ShowWindow, SwitchToThisWindow,
-    HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
-    SWP_SHOWWINDOW, SW_RESTORE, SW_SHOW,
+    WindowFromPoint, GA_ROOT, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    SWP_NOZORDER, SWP_SHOWWINDOW, SW_RESTORE, SW_SHOW,
 };
 
 pub fn windows_list() -> Result<Vec<Value>, ToolError> {
@@ -46,6 +46,19 @@ unsafe extern "system" fn enum_window(hwnd: HWND, lparam: LPARAM) -> BOOL {
 pub fn window_info(hwnd: i64) -> Result<Value, ToolError> {
     let hwnd = handle(hwnd)?;
     info_for(hwnd)
+}
+
+/// 屏幕坐标处最顶层窗口（取根窗口），用于点击前的遮挡检测。
+/// 无窗口时返回 None。
+pub fn window_at_point(x: i32, y: i32) -> Result<Option<Value>, ToolError> {
+    let point = POINT { x, y };
+    let hwnd = unsafe { WindowFromPoint(point) };
+    if hwnd.0 == 0 {
+        return Ok(None);
+    }
+    let root = unsafe { GetAncestor(hwnd, GA_ROOT) };
+    let target = if root.0 != 0 { root } else { hwnd };
+    Ok(Some(info_for(target)?))
 }
 
 pub fn find_window_by_title(title: &str) -> Result<Option<i64>, ToolError> {

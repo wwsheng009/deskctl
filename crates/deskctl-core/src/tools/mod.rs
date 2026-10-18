@@ -315,6 +315,25 @@ fn mouse(session: &Session, args: &Value) -> Result<ToolExecution, ToolError> {
             if !(1..=2).contains(&clicks) {
                 return Err(invalid("clicks must be 1 or 2"));
             }
+            if !args
+                .get("allow_occluded")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                if let Some(expected) = expected_click_target(session, args)? {
+                    if let Some(blocker) = occlusion_blocker(point.0, point.1, expected)? {
+                        return Err(ToolError::new(
+                            ErrorCode::TargetUnavailable,
+                            format!(
+                                "click target is occluded by another window (pid {}); pass allow_occluded=true to force",
+                                blocker["process_id"]
+                            ),
+                        )
+                        .details(json!({ "occluded_by": blocker }))
+                        .retryable(true));
+                    }
+                }
+            }
             platform::mouse_click(point.0, point.1, button, clicks as u8)?;
         }
         "hover" | "move" => platform::mouse_move(point.0, point.1)?,
@@ -340,6 +359,46 @@ fn mouse(session: &Session, args: &Value) -> Result<ToolExecution, ToolError> {
         }),
         DispatchState::Sent,
     ))
+}
+
+/// 点击期望落在哪个窗口：显式 hwnd 优先，其次本次捕获的前台窗口。
+fn expected_click_target(session: &Session, args: &Value) -> Result<Option<i64>, ToolError> {
+    if let Some(hwnd) = optional_i64(args, "hwnd")? {
+        return Ok(Some(hwnd));
+    }
+    if let Some(capture_id) = args.get("capture_id").and_then(Value::as_str) {
+        if let Ok(capture) = session.capture(capture_id) {
+            if let Some(foreground) = capture.foreground_hwnd {
+                return Ok(Some(foreground));
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// 点击点被其它窗口遮挡时返回遮挡者信息；同进程子窗口与任务栏（控制窗口切换）
+/// 视为合法目标，避免误报。
+fn occlusion_blocker(x: i32, y: i32, expected_hwnd: i64) -> Result<Option<Value>, ToolError> {
+    let Some(top) = platform::window_at_point(x, y)? else {
+        return Ok(None);
+    };
+    let top_hwnd = top["hwnd"].as_i64().unwrap_or_default();
+    let top_pid = top["process_id"].as_u64();
+    let class_name = top["class_name"].as_str().unwrap_or_default();
+    if matches!(class_name, "Shell_TrayWnd" | "Shell_SecondaryTrayWnd") {
+        return Ok(None);
+    }
+    let expected = platform::window_info(expected_hwnd)?;
+    let expected_pid = expected["process_id"].as_u64();
+    if top_hwnd == expected_hwnd || (top_pid.is_some() && top_pid == expected_pid) {
+        return Ok(None);
+    }
+    Ok(Some(json!({
+        "hwnd": top_hwnd,
+        "process_id": top_pid,
+        "process_name": top["process_name"],
+        "title": top["title"]
+    })))
 }
 
 fn mouse_drag(session: &Session, args: &Value) -> Result<ToolExecution, ToolError> {

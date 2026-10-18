@@ -744,6 +744,17 @@ pub trait SemanticBackend {
 事件只包含 `request_id`、工具名、耗时、错误类别、风险等级和状态，
 不包含完整输入文本、剪贴板内容、窗口标题或截图。
 
+### 11.7 前台/后台能力矩阵
+
+| 能力 | 前台要求 | 说明 |
+|---|---|---|
+| 截图、窗口枚举/信息、UIA 观察、OCR/找图找色、`verify_state` | 无 | 纯读取；被遮挡窗口可截图（最小化窗口除外） |
+| 窗口 `move`/`resize` | 无 | `SetWindowPos` 直接操作 |
+| UIA 语义动作（invoke/toggle/set_checked/select/expand/collapse/focus/set_value/scroll/scroll_into_view/set_range_value） | 可选 | `delivery_mode`：`auto`（默认，后台优先、失败回退前台）/`background`（不抢前台）/`foreground`（必须前台）；后台可用性由控件 provider 决定 |
+| 鼠标点击/拖拽 | 可见即可，且需未被遮挡 | 合成输入落在屏幕坐标最上层窗口；携带 `hwnd` 或 capture 引用时强制置前并做遮挡检测（`allow_occluded=true` 跳过） |
+| 键盘输入/快捷键 | 必须前台 | `SendInput` 只进焦点窗口；deskctl 先激活目标或返回结构化错误 |
+| `restore_foreground=true` | — | 语义动作结束后尽力还原动作前的前台窗口（受前台锁影响可能失败，结果如实返回） |
+
 ## 12. 代码组织
 
 ### 12.1 首期 workspace

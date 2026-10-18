@@ -169,7 +169,9 @@ fn execute_candidate(session: &Session, args: &Value) -> Result<ToolExecution, T
         ));
     }
     let options = action_options(args);
+    let previous_foreground = platform::foreground_hwnd().ok().flatten();
     perform_with_delivery(hwnd, node, uia_action(action), &options, mode)?;
+    let restore = restore_foreground_if_requested(previous_foreground, hwnd, args);
     session.clear_observation()?;
     completion_response(
         session,
@@ -182,6 +184,7 @@ fn execute_candidate(session: &Session, args: &Value) -> Result<ToolExecution, T
                 "delivery_mode": mode,
                 "dispatch_state": "sent"
             },
+            "restore_foreground": restore,
             "requires_observation": true
         }),
     )
@@ -238,7 +241,9 @@ fn execute_action(session: &Session, args: &Value) -> Result<ToolExecution, Tool
         ));
     }
     let options = action_options(args);
+    let previous_foreground = platform::foreground_hwnd().ok().flatten();
     perform_with_delivery(hwnd, node, uia_action(action), &options, mode)?;
+    let restore = restore_foreground_if_requested(previous_foreground, hwnd, args);
     session.clear_observation()?;
     completion_response(
         session,
@@ -249,9 +254,28 @@ fn execute_action(session: &Session, args: &Value) -> Result<ToolExecution, Tool
                 "hwnd": hwnd,
                 "delivery_mode": mode,
                 "dispatch_state": "sent"
-            }
+            },
+            "restore_foreground": restore
         }),
     )
+}
+
+/// restore_foreground=true 时，把动作前的前台窗口还原（尽力而为；
+/// 受 Windows 前台锁影响可能失败，结果如实返回布尔值）。
+fn restore_foreground_if_requested(
+    previous: Option<i64>,
+    target_hwnd: i64,
+    args: &Value,
+) -> Option<bool> {
+    let requested = args
+        .get("restore_foreground")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if !requested {
+        return None;
+    }
+    let previous = previous.filter(|hwnd| *hwnd != target_hwnd)?;
+    Some(platform::activate_window(previous).unwrap_or(false))
 }
 
 fn relaunch_and_retry_locator(
@@ -331,7 +355,8 @@ fn resolve_delivery_mode(args: &Value, preferred: Option<&str>) -> Result<&'stat
     if let Some(value) = preferred {
         return parse_delivery_mode(value);
     }
-    Ok("foreground")
+    // 默认 auto：优先后台执行、必要时回退前台，尽量避免抢焦点。
+    Ok("auto")
 }
 
 fn parse_delivery_mode(value: &str) -> Result<&'static str, ToolError> {
