@@ -3,7 +3,7 @@
 - 文档版本：0.1
 - 日期：2026-10-19
 - 状态：Draft（待评审）
-- 关联：[README.md](README.md)、[data-formats.md](data-formats.md)、[audit-history.md](audit-history.md)、[../acceptance-criteria.md](../acceptance-criteria.md)
+- 关联：[README.md](README.md)、[data-formats.md](data-formats.md)、[audit-history.md](audit-history.md)、[prior-art.md](prior-art.md)、[../acceptance-criteria.md](../acceptance-criteria.md)
 
 ## 1. 目标与范围
 
@@ -208,3 +208,4 @@ resolve_target(name, spec, mode) -> {hwnd, token, fingerprint} | error
 1. 录制是否默认包含截图步骤（当前 `essential` 包含）——截图较多会放大脚本体积与重放耗时。
 2. `volatile` capture 的自动替换策略：本期要求调用方用 `--param`，是否提供"重放时重拍截图"的自动回退（建议后续）。
 3. 是否支持脚本内条件分支（`if verify fails then …`）：本期不做，保持线性 + `optional/on_error` 两档。
+4. 来自 [prior-art.md](prior-art.md) 的修订建议待评审并入：**R1** 目标错误分码（`stale_target`/`ambiguous_target`/`identity_mismatch`）、**R2** 引用作用域显式化（跨观察必须 re-observe/重绑）、**R3** 效果核验分级（`screen` 弱核验 vs `readback` 强核验；OpenAdapt 实测屏幕检查在 72/90 故障注入中误判、读回全部识破）、**R4** run-level `outcome`（含 `RECONCILIATION_REQUIRED`="可能已写入，需人工核对"）。

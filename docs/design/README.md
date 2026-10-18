@@ -59,6 +59,7 @@ CLI/MCP ──► deskctl history      （P0：直读 audit JSONL，过滤/聚�
 | Agent 身份与配额 | [agent-identity.md](agent-identity.md) | P1 | `--owner`、MCP clientInfo、按 owner 过滤/限额 |
 | 录制与回放 | [record-replay.md](record-replay.md) | P1 | `desktop_recorder_start/stop`、`desktop_script_run`、`deskctl script` |
 | 检查点与补偿 | [checkpoint-transaction.md](checkpoint-transaction.md) | P2 | `desktop_checkpoint_save/verify`、补偿脚本约定 |
+| 先例调研（GitHub） | [prior-art.md](prior-art.md) | 评审输入 | 同类项目清单、机制对照、7 条修订建议（R1–R7） |
 
 ## 4. 里程碑与门禁
 
@@ -80,6 +81,8 @@ CLI/MCP ──► deskctl history      （P0：直读 audit JSONL，过滤/聚�
 - **AC-TXN-001..003**：检查点保存、差异校验、补偿脚本 dry-run 建议。
 
 编号最终以 [../acceptance-criteria.md](../acceptance-criteria.md) 登记为准。
+
+**评审输入**：[prior-art.md](prior-art.md) 汇总了 GitHub 同类项目（OpenAdapt、agent-desktop、clawdcursor、agent_recorder、Windows-MCP、UI-TARS 等）的机制对照，提出 7 条修订建议（R1–R7，含目标错误分码、效果核验分级、run-level outcome、注入防御等）。这些修订在评审通过后并入对应文档与 AC 编号。
 
 ## 6. 术语
 

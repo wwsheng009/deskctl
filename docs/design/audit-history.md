@@ -3,7 +3,7 @@
 - 文档版本：0.1
 - 日期：2026-10-19
 - 状态：Draft（待评审）
-- 关联：[README.md](README.md)、[data-formats.md](data-formats.md)、[../architecture.md](../architecture.md)
+- 关联：[README.md](README.md)、[data-formats.md](data-formats.md)、[prior-art.md](prior-art.md)、[../architecture.md](../architecture.md)
 
 ## 1. 目标
 
@@ -201,3 +201,4 @@ deskctl history [--session <id>] [--owner <id>] [--tool <name>] [--since <rfc333
 2. 队列满策略：丢弃+计数（当前设计）vs 背压阻塞（更完整但影响延迟）——建议维持丢弃。
 3. `session` 事件（create/close）是否入账：建议入账（`kind="session"`），便于归因窗口存活期。
 4. 是否需要 `history --follow`（tail -f 语义）：建议 D1 不做，留待 D3 与录制器联动。
+5. 脱敏与可信度增强（来自 [prior-art.md](prior-art.md) R5）：密码字段（UIA `IsPassword=true`）永不记录、key 名单（api_key/token/authorization/password/secret）、可选 OTLP 导出，以及**可选**哈希链 tamper-evident 档位（参考 agentlens）——评审后并入 §5/§8。
