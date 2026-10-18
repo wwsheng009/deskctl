@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1.0",
   "profile": "full",
-  "count": 30,
+  "count": 35,
   "tools": [
     {
       "name": "desktop_mouse",
@@ -52,8 +52,28 @@
       "file": "desktop_image_crop.json"
     },
     {
-      "name": "desktop_document_save",
-      "file": "desktop_document_save.json"
+      "name": "desktop_docx_read",
+      "file": "desktop_docx_read.json"
+    },
+    {
+      "name": "desktop_docx_save",
+      "file": "desktop_docx_save.json"
+    },
+    {
+      "name": "desktop_xlsx_read",
+      "file": "desktop_xlsx_read.json"
+    },
+    {
+      "name": "desktop_xlsx_save",
+      "file": "desktop_xlsx_save.json"
+    },
+    {
+      "name": "desktop_pptx_read",
+      "file": "desktop_pptx_read.json"
+    },
+    {
+      "name": "desktop_pptx_save",
+      "file": "desktop_pptx_save.json"
     },
     {
       "name": "desktop_vision",

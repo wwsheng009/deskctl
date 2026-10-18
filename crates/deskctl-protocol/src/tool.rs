@@ -59,7 +59,12 @@ pub enum ToolName {
     WindowResize,
     WindowInfo,
     ImageCrop,
-    DocumentSave,
+    DocxRead,
+    DocxSave,
+    XlsxRead,
+    XlsxSave,
+    PptxRead,
+    PptxSave,
     Vision,
     Perceive,
     FindImage,
@@ -92,7 +97,7 @@ pub struct ToolMeta {
 }
 
 impl ToolName {
-    pub const ALL: [ToolName; 30] = [
+    pub const ALL: [ToolName; 35] = [
         Self::Mouse,
         Self::MouseDrag,
         Self::Input,
@@ -105,7 +110,12 @@ impl ToolName {
         Self::WindowResize,
         Self::WindowInfo,
         Self::ImageCrop,
-        Self::DocumentSave,
+        Self::DocxRead,
+        Self::DocxSave,
+        Self::XlsxRead,
+        Self::XlsxSave,
+        Self::PptxRead,
+        Self::PptxSave,
         Self::Vision,
         Self::Perceive,
         Self::FindImage,
@@ -227,9 +237,49 @@ impl ToolName {
                 false,
                 false,
             ),
-            Self::DocumentSave => meta(
-                "desktop_document_save",
-                "Build a .docx report from captured images and text sections; pure local file work, background friendly.",
+            Self::DocxRead => meta(
+                "desktop_docx_read",
+                "Read paragraphs, tables and image count from a .docx document.",
+                RiskClass::ReadOnly,
+                true,
+                false,
+                false,
+            ),
+            Self::DocxSave => meta(
+                "desktop_docx_save",
+                "Build a .docx report from captured images, text sections and tables; pure local file work, background friendly.",
+                RiskClass::ReadOnly,
+                true,
+                false,
+                false,
+            ),
+            Self::XlsxRead => meta(
+                "desktop_xlsx_read",
+                "Read worksheets and cell values from .xlsx/.xls/.ods workbooks (bounded rows/cols).",
+                RiskClass::ReadOnly,
+                true,
+                false,
+                false,
+            ),
+            Self::XlsxSave => meta(
+                "desktop_xlsx_save",
+                "Write a .xlsx workbook from sheets of typed cell values.",
+                RiskClass::ReadOnly,
+                true,
+                false,
+                false,
+            ),
+            Self::PptxRead => meta(
+                "desktop_pptx_read",
+                "Read per-slide texts and image counts from a .pptx presentation.",
+                RiskClass::ReadOnly,
+                true,
+                false,
+                false,
+            ),
+            Self::PptxSave => meta(
+                "desktop_pptx_save",
+                "Write a minimal .pptx deck with title and bullet slides.",
                 RiskClass::ReadOnly,
                 true,
                 false,
@@ -397,7 +447,12 @@ impl ToolName {
                             | Self::WindowsList
                             | Self::WindowInfo
                             | Self::ImageCrop
-                            | Self::DocumentSave
+                            | Self::DocxRead
+                            | Self::DocxSave
+                            | Self::XlsxRead
+                            | Self::XlsxSave
+                            | Self::PptxRead
+                            | Self::PptxSave
                             | Self::Vision
                             | Self::Perceive
                             | Self::FindImage

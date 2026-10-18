@@ -91,7 +91,12 @@ pub async fn execute(
         ToolName::WindowResize => window_resize(args),
         ToolName::WindowScreenshot => window_screenshot(engine, session, args),
         ToolName::ImageCrop => image_crop(engine, session, args),
-        ToolName::DocumentSave => document_save(engine, session, args),
+        ToolName::DocxRead => docx_read(engine, args),
+        ToolName::DocxSave => docx_save(engine, session, args),
+        ToolName::XlsxRead => xlsx_read(engine, args),
+        ToolName::XlsxSave => xlsx_save(args),
+        ToolName::PptxRead => pptx_read(engine, args),
+        ToolName::PptxSave => pptx_save(args),
         ToolName::Mouse => mouse(session, args),
         ToolName::MouseDrag => mouse_drag(session, args),
         ToolName::Input => input(session, args),
@@ -1033,12 +1038,8 @@ fn image_crop(
     })))
 }
 
-/// 把若干截图/图片与文字汇总为 `.docx` 文档（纯本地文件操作，不抢前台）。
-fn document_save(
-    engine: &Engine,
-    session: &Session,
-    args: &Value,
-) -> Result<ToolExecution, ToolError> {
+/// 把截图/文字/表格汇总为 `.docx`（纯本地文件操作，不抢前台）。
+fn docx_save(engine: &Engine, session: &Session, args: &Value) -> Result<ToolExecution, ToolError> {
     let sections = args
         .get("sections")
         .and_then(Value::as_array)
@@ -1070,6 +1071,27 @@ fn document_save(
             });
             image_count += 1;
         }
+        if let Some(table) = section.get("table").filter(|value| value.is_object()) {
+            let rows = table
+                .get("rows")
+                .and_then(Value::as_array)
+                .ok_or_else(|| invalid("table.rows must be an array"))?;
+            let mut table_rows = Vec::new();
+            for row in rows {
+                let cells = row
+                    .as_array()
+                    .ok_or_else(|| invalid("table rows must be arrays"))?;
+                let mut table_row = Vec::new();
+                for cell in cells {
+                    table_row.push(match cell {
+                        Value::String(text) => text.clone(),
+                        other => other.to_string(),
+                    });
+                }
+                table_rows.push(table_row);
+            }
+            blocks.push(crate::docx::Block::Table(table_rows));
+        }
     }
     blocks.push(crate::docx::Block::Paragraph(format!(
         "由 deskctl {} 生成于 {}",
@@ -1090,6 +1112,132 @@ fn document_save(
         "sections": sections.len(),
         "images": image_count,
         "title": args.get("title").and_then(Value::as_str)
+    })))
+}
+
+/// 读取 `.docx` 的段落/表格/内嵌图片数量。
+fn docx_read(engine: &Engine, args: &Value) -> Result<ToolExecution, ToolError> {
+    let raw = required_str(args, "path")?;
+    let path = normalize_image_path(engine, raw)?;
+    let content = crate::docx::read_document(&path)?;
+    Ok(ToolExecution::read(json!({
+        "path": path.display().to_string(),
+        "paragraphs": content.paragraphs,
+        "tables": content.tables,
+        "images": content.images,
+        "truncated": content.truncated
+    })))
+}
+
+/// 读取 `.xlsx`/`.xls`/`.ods` 的工作表与单元格值。
+fn xlsx_read(engine: &Engine, args: &Value) -> Result<ToolExecution, ToolError> {
+    let raw = required_str(args, "path")?;
+    let path = normalize_image_path(engine, raw)?;
+    let sheets = crate::xlsx::read_workbook(&path)?;
+    let filtered = if let Some(name) = args.get("sheet").and_then(Value::as_str) {
+        let list: Vec<Value> = sheets
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|sheet| sheet["name"].as_str() == Some(name))
+            .collect();
+        if list.is_empty() {
+            return Err(invalid(format!("sheet '{name}' not found")));
+        }
+        Value::Array(list)
+    } else {
+        sheets
+    };
+    Ok(ToolExecution::read(json!({
+        "path": path.display().to_string(),
+        "sheets": filtered
+    })))
+}
+
+/// 写出 `.xlsx`（工作表名 + 行数据；字符串以 inline 方式存储）。
+fn xlsx_save(args: &Value) -> Result<ToolExecution, ToolError> {
+    let raw = required_str(args, "path")?;
+    let sheets_value = args
+        .get("sheets")
+        .and_then(Value::as_array)
+        .filter(|sheets| !sheets.is_empty())
+        .ok_or_else(|| invalid("sheets must be a non-empty array"))?;
+    let mut sheets = Vec::new();
+    for (index, sheet) in sheets_value.iter().enumerate() {
+        let name = sheet
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("Sheet{}", index + 1));
+        let rows_value = sheet
+            .get("rows")
+            .and_then(Value::as_array)
+            .ok_or_else(|| invalid("sheet.rows must be an array"))?;
+        let mut rows = Vec::new();
+        for row in rows_value {
+            let cells = row
+                .as_array()
+                .ok_or_else(|| invalid("sheet rows must be arrays"))?;
+            rows.push(cells.clone());
+        }
+        sheets.push(crate::xlsx::SheetSpec { name, rows });
+    }
+    let path = std::path::PathBuf::from(raw);
+    let sheet_count = sheets.len();
+    let bytes = crate::xlsx::write_workbook(&path, &sheets)?;
+    Ok(ToolExecution::read(json!({
+        "path": path.display().to_string(),
+        "bytes": bytes,
+        "sheets": sheet_count
+    })))
+}
+
+/// 读取 `.pptx` 的每页文本与图片数量。
+fn pptx_read(engine: &Engine, args: &Value) -> Result<ToolExecution, ToolError> {
+    let raw = required_str(args, "path")?;
+    let path = normalize_image_path(engine, raw)?;
+    let presentation = crate::pptx::read_presentation(&path)?;
+    Ok(ToolExecution::read(json!({
+        "path": path.display().to_string(),
+        "presentation": presentation
+    })))
+}
+
+/// 写出 `.pptx`（每页标题 + 要点）。
+fn pptx_save(args: &Value) -> Result<ToolExecution, ToolError> {
+    let raw = required_str(args, "path")?;
+    let slides_value = args
+        .get("slides")
+        .and_then(Value::as_array)
+        .filter(|slides| !slides.is_empty())
+        .ok_or_else(|| invalid("slides must be a non-empty array"))?;
+    let mut slides = Vec::new();
+    for slide in slides_value {
+        let title = slide
+            .get("title")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let bullets = slide
+            .get("bullets")
+            .and_then(Value::as_array)
+            .map(|bullets| {
+                bullets
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        slides.push(crate::pptx::SlideSpec { title, bullets });
+    }
+    let path = std::path::PathBuf::from(raw);
+    let slide_count = slides.len();
+    let bytes = crate::pptx::write_presentation(&path, &slides)?;
+    Ok(ToolExecution::read(json!({
+        "path": path.display().to_string(),
+        "bytes": bytes,
+        "slides": slide_count
     })))
 }
 

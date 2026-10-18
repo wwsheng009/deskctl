@@ -10,7 +10,7 @@
 |---|---|---|
 | M0 文档冻结 | 完成 | 架构、验收、测试、MCP、skills 文档齐备 |
 | M1 Workspace 与协议骨架 | 完成 | 3 个 crate，统一结果封套，CLI/doctor/schema |
-| M2 Windows 无状态工具 | 完成 | 截图、窗口、鼠标、键盘、剪贴板、找图/找色/找字、等待、图像裁剪、Word 报告 |
+| M2 Windows 无状态工具 | 完成 | 截图、窗口、鼠标、键盘、剪贴板、找图/找色/找字、等待、图像裁剪、Word/Excel/PPT 读写 |
 | M3 Daemon 与多 session | 完成 | Named Pipe daemon、session 管理、资源门 |
 | M4 MCP 服务 | 完成 | initialize / tools/list / tools/call / prompts |
 | M5 视觉与模型 | 完成 | PaddleOCR 与 YOLO 均已接入并真机验证 |
@@ -72,9 +72,12 @@
   hwnd=对话框；Escape 同样被重定向并关闭对话框
 - 图像裁剪（AC-IMG-001/002）：后台截取 SAP 会话窗口 2175×1202 → `desktop_image_crop`
   两块区域（780×300）均成功并登记为可链式 capture
-- Word 报告（AC-DOC-001/002）：`desktop_document_save` 生成 71,797 bytes `.docx`
+- Word 报告（AC-DOC-001/002）：`desktop_docx_save`（原 `desktop_document_save`）生成 71,797 bytes `.docx`
   （6 个包条目、2 张内嵌 PNG、document.xml 含标题/图注/正文）；全程前台保持
   Windows Terminal 不变（零抢焦点）
+- 办公文档读写（AC-DOC-003/004/005）：后台生成并读回——docx（38,499 bytes：6 段落/1 表格/
+  1 图片）、xlsx（2,164 bytes：ST06 表 5 行类型化值）、pptx（5,677 bytes：2 页标题+要点）；
+  输入路径策略实测（允许根之外 `policy_denied`，改存 `artifacts/` 后读回通过）
 
 ## 3. 测试状态
 
@@ -82,9 +85,9 @@
 
 ```text
 deskctl-cli:      13 passed（cli_contract 3、mcp_smoke 3、skills_contract 1、tool_contract 6）
-deskctl-core:     26 passed（lib 20、path_policy 2、session_isolation 4）
+deskctl-core:     30 passed（lib 24、path_policy 2、session_isolation 4）
 deskctl-protocol:  3 passed
-合计:             42 passed, 0 failed
+合计:             46 passed, 0 failed
 ```
 
 `cargo fmt --all -- --check` 与 `cargo clippy --workspace --all-targets -- -D warnings` 均无告警
@@ -92,8 +95,8 @@ deskctl-protocol:  3 passed
 
 覆盖：
 
-- 30 工具 Schema 合法性
-- 28/30 profile 工具数量
+- 35 工具 Schema 合法性
+- 33/35 profile 工具数量
 - readonly 不暴露输入工具
 - 无 approve/reject/approval 工具
 - skills manifest 与工具名一致性
@@ -108,6 +111,7 @@ deskctl-protocol:  3 passed
 - 扩展动作/树游标/delivery 解析（tools::semantic 单测）
 - 应用 catalog：仅收 .lnk、`app_ref` 稳定且不可伪造、未知 ref 拒绝、扫描上限（apps 单测）
 - docx 包结构（[Content_Types]/rels/document/media）与 XML 转义（docx 单测）
+- 办公三件套往返：docx 段落/表格/图片、xlsx 值类型、pptx 标题/要点（docx/xlsx/pptx 单测）
 
 ## 4. 运行时资源
 
@@ -185,6 +189,8 @@ pwsh scripts/fetch-models.ps1
   Escape 重定向关闭）
 - AC-IMG-001/002、AC-DOC-001/002（真机 smoke：后台截图 SAP 窗口 → 双区域裁剪 → docx
   汇总（含内嵌图）→ 包结构校验；前台全程未被抢占）
+- AC-DOC-003/004/005（真机 smoke：docx/xlsx/pptx 生成并读回、含表格与类型化值；
+  输入路径策略与后台执行验证）
 - AC-PER-003（OCR/YOLO 合并去重 smoke）
 - AC-SESS-001/002/004/005/006
 - AC-SESS-003/009（安全脚本实测：8 并发输入串行、0 失败、p50=708ms/max=1129ms 无饥饿）

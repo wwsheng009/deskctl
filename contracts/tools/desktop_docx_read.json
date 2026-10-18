@@ -1,0 +1,24 @@
+{
+  "name": "desktop_docx_read",
+  "description": "Read paragraphs, tables and image count from a .docx document.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "required": [
+      "path"
+    ],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_docx_read",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

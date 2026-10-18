@@ -4,11 +4,12 @@
 //! 生成物是标准 `.docx`（OOXML 包），可被 Word / WPS / LibreOffice 直接打开。
 
 use std::fs::File;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::Path;
 
 use deskctl_protocol::{ErrorCode, ToolError};
-use zip::write::SimpleFileOptions;
+use quick_xml::events::Event;
+use zip::write::FileOptions;
 use zip::{CompressionMethod, ZipWriter};
 
 const EMU_PER_PX: f64 = 9525.0; // 96 dpi
@@ -23,6 +24,8 @@ pub enum Block {
     Heading(String),
     /// 正文段落。
     Paragraph(String),
+    /// 表格（行 × 单元格文本）。
+    Table(Vec<Vec<String>>),
     /// 内嵌 PNG 图片（含可选图注与宽度上限）。
     Image {
         png: Vec<u8>,
@@ -57,6 +60,7 @@ pub fn write_document(path: &Path, blocks: &[Block]) -> Result<u64, ToolError> {
             Block::Title(text) => document.push_str(&paragraph(text, 32, true, false)),
             Block::Heading(text) => document.push_str(&paragraph(text, 26, true, false)),
             Block::Paragraph(text) => document.push_str(&paragraph(text, 0, false, false)),
+            Block::Table(rows) => document.push_str(&table_xml(rows)),
             Block::Image {
                 png,
                 width_px,
@@ -123,7 +127,8 @@ fn document_rels(rels: &[(String, String)]) -> String {
 }
 
 fn write_entry(zip: &mut ZipWriter<File>, name: &str, data: &[u8]) -> Result<(), ToolError> {
-    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    let options: FileOptions<'_, ()> =
+        FileOptions::default().compression_method(CompressionMethod::Deflated);
     zip.start_file(name, options)
         .map_err(|error| internal(format!("write {name}: {error}")))?;
     zip.write_all(data)
@@ -148,6 +153,23 @@ fn paragraph(text: &str, size_half_pt: u32, bold: bool, italic: bool) -> String 
         "<w:p><w:r>{run_properties}<w:t xml:space=\"preserve\">{}</w:t></w:r></w:p>",
         escape(text)
     )
+}
+
+fn table_xml(rows: &[Vec<String>]) -> String {
+    let mut xml = String::from(
+        r#"<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/><w:tblBorders><w:top w:val="single" w:sz="4" w:color="999999"/><w:left w:val="single" w:sz="4" w:color="999999"/><w:bottom w:val="single" w:sz="4" w:color="999999"/><w:right w:val="single" w:sz="4" w:color="999999"/><w:insideH w:val="single" w:sz="4" w:color="999999"/><w:insideV w:val="single" w:sz="4" w:color="999999"/></w:tblBorders></w:tblPr>"#,
+    );
+    for row in rows {
+        xml.push_str("<w:tr>");
+        for cell in row {
+            xml.push_str(r#"<w:tc><w:tcPr><w:tcW w:w="0" w:type="auto"/></w:tcPr>"#);
+            xml.push_str(&paragraph(cell, 0, false, false));
+            xml.push_str("</w:tc>");
+        }
+        xml.push_str("</w:tr>");
+    }
+    xml.push_str("</w:tbl><w:p/>");
+    xml
 }
 
 fn image_paragraph(
@@ -198,6 +220,136 @@ fn internal(message: impl Into<String>) -> ToolError {
     ToolError::new(ErrorCode::Internal, message)
 }
 
+/// 读取 `.docx` 的纯文本结构。
+#[derive(Debug, Clone)]
+pub struct DocxContent {
+    pub paragraphs: Vec<String>,
+    pub tables: Vec<Vec<Vec<String>>>,
+    pub images: usize,
+    pub truncated: bool,
+}
+
+/// 解析 `word/document.xml`：段落文本、表格单元格与内嵌图片数量（有上限防爆）。
+pub fn read_document(path: &Path) -> Result<DocxContent, ToolError> {
+    let file = File::open(path).map_err(|error| internal(format!("open document: {error}")))?;
+    let mut archive = zip::ZipArchive::new(file)
+        .map_err(|error| invalid(format!("not a zip package: {error}")))?;
+    let images = (0..archive.len())
+        .filter_map(|index| {
+            archive
+                .by_index(index)
+                .ok()
+                .map(|entry| entry.name().to_string())
+        })
+        .filter(|name| name.starts_with("word/media/"))
+        .count();
+    let mut document = String::new();
+    {
+        let mut entry = archive
+            .by_name("word/document.xml")
+            .map_err(|_| invalid("not a .docx package (word/document.xml missing)"))?;
+        entry
+            .read_to_string(&mut document)
+            .map_err(|error| internal(format!("read document xml: {error}")))?;
+    }
+
+    let mut reader = quick_xml::Reader::from_str(&document);
+    let mut paragraphs: Vec<String> = Vec::new();
+    let mut tables: Vec<Vec<Vec<String>>> = Vec::new();
+    let mut table_rows: Vec<Vec<String>> = Vec::new();
+    let mut table_depth = 0usize;
+    let mut row: Option<Vec<String>> = None;
+    let mut cell: Option<String> = None;
+    let mut paragraph_text: Option<String> = None;
+    let mut capturing = false;
+    let mut truncated = false;
+    loop {
+        let event = reader
+            .read_event()
+            .map_err(|error| invalid(format!("parse document xml: {error}")))?;
+        match event {
+            Event::Start(start) => match start.local_name().as_ref() {
+                b"tbl" => {
+                    table_depth += 1;
+                    table_rows.clear();
+                }
+                b"tr" => row = Some(Vec::new()),
+                b"tc" => cell = Some(String::new()),
+                b"t" => capturing = true,
+                b"p" => paragraph_text = Some(String::new()),
+                _ => {}
+            },
+            Event::Text(text) => {
+                if capturing {
+                    let value = text.unescape().unwrap_or_default();
+                    if let Some(cell_text) = cell.as_mut() {
+                        cell_text.push_str(&value);
+                    } else if let Some(paragraph) = paragraph_text.as_mut() {
+                        paragraph.push_str(&value);
+                    }
+                }
+            }
+            Event::End(end) => match end.local_name().as_ref() {
+                b"t" => capturing = false,
+                b"tc" => {
+                    if let (Some(cell_text), Some(row)) = (cell.take(), row.as_mut()) {
+                        if row.len() < 100 {
+                            row.push(cell_text.trim().to_string());
+                        } else {
+                            truncated = true;
+                        }
+                    }
+                    paragraph_text = None;
+                }
+                b"tr" => {
+                    if let Some(completed) = row.take() {
+                        if table_rows.len() < 500 {
+                            table_rows.push(completed);
+                        } else {
+                            truncated = true;
+                        }
+                    }
+                }
+                b"tbl" => {
+                    table_depth = table_depth.saturating_sub(1);
+                    if table_depth == 0 {
+                        if tables.len() < 100 {
+                            tables.push(std::mem::take(&mut table_rows));
+                        } else {
+                            truncated = true;
+                        }
+                    }
+                }
+                b"p" => {
+                    if let Some(text) = paragraph_text.take() {
+                        let trimmed = text.trim();
+                        if !trimmed.is_empty() && table_depth == 0 && cell.is_none() {
+                            if paragraphs.len() < 2000 {
+                                paragraphs.push(trimmed.to_string());
+                            } else {
+                                truncated = true;
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            },
+            Event::Eof => break,
+            _ => {}
+        }
+    }
+    Ok(DocxContent {
+        paragraphs,
+        tables,
+        images,
+        truncated,
+    })
+}
+
+fn invalid(message: impl Into<String>) -> ToolError {
+    ToolError::new(ErrorCode::InvalidParams, message)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,6 +390,40 @@ mod tests {
     #[test]
     fn escapes_xml_text() {
         assert_eq!(escape("a<b>&\"'"), "a&lt;b&gt;&amp;&quot;&apos;");
+    }
+
+    #[test]
+    fn round_trips_paragraphs_tables_and_images() {
+        let directory = std::env::temp_dir().join(format!("docx-rt-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).expect("temp dir");
+        let path = directory.join("rt.docx");
+        let blocks = vec![
+            Block::Title("标题".to_string()),
+            Block::Paragraph("第一段 <转义>".to_string()),
+            Block::Table(vec![
+                vec!["CPU".to_string(), "1.0%".to_string()],
+                vec!["内存".to_string(), "6.5%".to_string()],
+            ]),
+            Block::Image {
+                png: tiny_png(),
+                width_px: 4,
+                height_px: 4,
+                caption: None,
+                width_cm: None,
+            },
+        ];
+        write_document(&path, &blocks).expect("write docx");
+        let content = read_document(&path).expect("read docx");
+        assert!(content.paragraphs.iter().any(|line| line == "标题"));
+        assert!(content
+            .paragraphs
+            .iter()
+            .any(|line| line == "第一段 <转义>"));
+        assert_eq!(content.tables.len(), 1);
+        assert_eq!(content.tables[0][1][0], "内存");
+        assert_eq!(content.images, 1);
+        assert!(!content.truncated);
+        let _ = std::fs::remove_dir_all(directory);
     }
 }
 

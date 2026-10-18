@@ -1,0 +1,45 @@
+{
+  "name": "desktop_pptx_save",
+  "description": "Write a minimal .pptx deck with title and bullet slides.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string",
+        "minLength": 1
+      },
+      "slides": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string"
+            },
+            "bullets": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": [
+      "path",
+      "slides"
+    ],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_pptx_save",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

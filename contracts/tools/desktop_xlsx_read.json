@@ -1,0 +1,27 @@
+{
+  "name": "desktop_xlsx_read",
+  "description": "Read worksheets and cell values from .xlsx/.xls/.ods workbooks (bounded rows/cols).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string",
+        "minLength": 1
+      },
+      "sheet": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "path"
+    ],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_xlsx_read",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

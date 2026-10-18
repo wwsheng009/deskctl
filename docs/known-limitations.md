@@ -39,8 +39,12 @@
 - `desktop_image_crop` 的 `image_path` 输入受允许图像根约束（与 perceive/find_image 一致）；
   使用 `image_path` 的裁剪不会登记新 capture（无屏幕坐标映射），需要链式点击/OCR 时请用
   `capture_id` 作为来源。
-- `desktop_document_save` 为最小 OOXML 实现：标题/小节/正文/PNG 图片/图注；暂不支持表格、
-  样式模板、页眉页脚；所有图片统一转 PNG 内嵌，大图按 15cm 默认宽度等比缩放。
+- 办公文档工具为最简 OOXML 实现：`desktop_docx_save` 支持标题/小节/正文/表格/PNG 图片与
+  图注（暂不支持样式模板、页眉页脚，大图按 15cm 默认宽度等比缩放）；`desktop_xlsx_save`
+  仅内联字符串/数值/布尔（读回上限 500 行×100 列并返回 `truncated`，写出上限 20,000 行×500 列）；
+  `desktop_pptx_save` 仅标题+要点（不支持图片/版式/演讲者备注）。
+- `desktop_docx_read`/`desktop_xlsx_read`/`desktop_pptx_read` 的输入路径遵循与图片相同的
+  允许根策略，越界返回 `policy_denied`（错误文案沿用 "image path is outside configured image roots"）。
 - 自定义截图路径不受沙箱限制，调用方负责路径与覆盖策略。
 - 会话关闭只清理 `%TEMP%` 下的会话截图；默认 `%LOCALAPPDATA%\deskctl\captures`
   视为持久产物，不随会话关闭删除。

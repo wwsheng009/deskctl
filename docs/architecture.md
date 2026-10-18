@@ -755,7 +755,7 @@ pub trait SemanticBackend {
 | 键盘输入/快捷键 | 必须前台 | `SendInput` 只进焦点窗口；deskctl 先激活目标或返回结构化错误 |
 | `restore_foreground=true` | — | 语义动作结束后尽力还原动作前的前台窗口（受前台锁影响可能失败，结果如实返回） |
 | 模态弹窗跟随 | — | 目标窗口被禁用时：`target_bind follow_dialog=true` 绑定活动弹窗（响应 `parent_hwnd`）；`desktop_input` 输入重定向并返回 `target_hwnd`；`semantic_observe`/`semantic_action` 自动跟随并报告 `redirected_from` |
-| 图像裁剪 / 文档生成 | 无 | `desktop_image_crop`、`desktop_document_save` 为纯本地文件处理（含内嵌 PNG 的 OOXML 打包），不触碰输入队列，完全后台执行 |
+| 图像裁剪 / 办公文档 | 无 | `desktop_image_crop`、`desktop_docx_read/save`、`desktop_xlsx_read/save`、`desktop_pptx_read/save` 为纯本地文件处理（zip + OOXML），不触碰输入队列，完全后台执行；文档读取输入受允许图像根约束 |
 
 ## 12. 代码组织
 

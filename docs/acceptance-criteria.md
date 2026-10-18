@@ -26,8 +26,8 @@
 
 ### AC-SCOPE-002 工具范围
 
-- 默认 `standard` profile 暴露 28 个核心工具。
-- `full` profile 暴露 30 个工具。
+- 默认 `standard` profile 暴露 33 个核心工具。
+- `full` profile 暴露 35 个工具。
 - 只有 `desktop_*`，不出现 `browser_*`、`workflow_*`、`agent_*` 工具。
 - `desktop_vision` 和 `desktop_agent_step` 仅在对应可选功能启用时出现。
 
@@ -164,8 +164,11 @@
 |---|---|---|
 | AC-IMG-001 | 图像裁剪 | `desktop_image_crop` 以 `capture_id` 或允许目录内的 `image_path` 为源，按区域裁剪；越界返回 `invalid_params` 并附源图尺寸；输出遵循截图编码策略（`format`/`quality`/`max_*`） |
 | AC-IMG-002 | 裁剪链 | `capture_id` 来源的裁剪结果登记为新 capture（`capture_id` 非空），元素坐标映射按区域平移保持，可继续用于点击/OCR/二次裁剪 |
-| AC-DOC-001 | Word 文档 | `desktop_document_save` 生成可被 Word/WPS/LibreOffice 打开的 `.docx`（标题、小节、正文、内嵌图片与图注）；缺省输出到 data 目录 |
-| AC-DOC-002 | 后台执行 | 截图 → 裁剪 → 文档汇总全流程不要求前台、不抢焦点（执行前后前台窗口保持不变） |
+| AC-DOC-001 | Word 文档 | `desktop_docx_save` 生成可被 Word/WPS/LibreOffice 打开的 `.docx`（标题、小节、正文、表格、内嵌图片与图注）；缺省输出到 data 目录 |
+| AC-DOC-002 | 后台执行 | 截图 → 裁剪 → 文档（docx/xlsx/pptx）汇总全流程不要求前台、不抢焦点（执行前后前台窗口保持不变） |
+| AC-DOC-003 | docx 读取 | `desktop_docx_read` 返回段落、表格与内嵌图片数量；非 docx 包返回结构化错误 |
+| AC-DOC-004 | xlsx 读写 | `desktop_xlsx_save` 写出可被 Excel/WPS 打开的工作簿；`desktop_xlsx_read` 读回工作表与类型化单元格值（行/列有上限并返回 `truncated`） |
+| AC-DOC-005 | pptx 读写 | `desktop_pptx_save` 生成可打开的标题+要点幻灯片；`desktop_pptx_read` 返回每页文本与图片数量 |
 
 ## 4. 多会话与状态验收
 

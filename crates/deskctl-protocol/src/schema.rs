@@ -319,7 +319,11 @@ pub fn input_schema(name: ToolName) -> Value {
             }),
             &["x", "y", "width", "height"],
         ),
-        ToolName::DocumentSave => object(
+        ToolName::DocxRead => object(
+            json!({ "path": { "type": "string", "minLength": 1 } }),
+            &["path"],
+        ),
+        ToolName::DocxSave => object(
             json!({
                 "path": { "type": "string" },
                 "title": { "type": "string" },
@@ -338,6 +342,12 @@ pub fn input_schema(name: ToolName) -> Value {
                                     "width_cm": { "type": "number", "minimum": 1, "maximum": 18 }
                                 }),
                                 &[],
+                            ),
+                            "table": object(
+                                json!({
+                                    "rows": { "type": "array", "items": { "type": "array", "items": { "type": "string" } } }
+                                }),
+                                &["rows"],
                             )
                         }),
                         &[],
@@ -345,6 +355,51 @@ pub fn input_schema(name: ToolName) -> Value {
                 }
             }),
             &["sections"],
+        ),
+        ToolName::XlsxRead => object(
+            json!({
+                "path": { "type": "string", "minLength": 1 },
+                "sheet": { "type": "string" }
+            }),
+            &["path"],
+        ),
+        ToolName::XlsxSave => object(
+            json!({
+                "path": { "type": "string", "minLength": 1 },
+                "sheets": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": object(
+                        json!({
+                            "name": { "type": "string" },
+                            "rows": { "type": "array", "items": { "type": "array" } }
+                        }),
+                        &["rows"],
+                    )
+                }
+            }),
+            &["path", "sheets"],
+        ),
+        ToolName::PptxRead => object(
+            json!({ "path": { "type": "string", "minLength": 1 } }),
+            &["path"],
+        ),
+        ToolName::PptxSave => object(
+            json!({
+                "path": { "type": "string", "minLength": 1 },
+                "slides": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": object(
+                        json!({
+                            "title": { "type": "string" },
+                            "bullets": { "type": "array", "items": { "type": "string" } }
+                        }),
+                        &[],
+                    )
+                }
+            }),
+            &["path", "slides"],
         ),
         ToolName::AgentStep => object(
             json!({
@@ -398,8 +453,8 @@ mod tests {
 
     #[test]
     fn descriptors_have_stable_counts_and_names() {
-        assert_eq!(tool_descriptors(ToolProfile::Standard).len(), 28);
-        assert_eq!(tool_descriptors(ToolProfile::Full).len(), 30);
+        assert_eq!(tool_descriptors(ToolProfile::Standard).len(), 33);
+        assert_eq!(tool_descriptors(ToolProfile::Full).len(), 35);
         for descriptor in tool_descriptors(ToolProfile::Full) {
             assert!(descriptor["name"]
                 .as_str()

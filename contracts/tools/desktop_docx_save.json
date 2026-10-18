@@ -1,0 +1,83 @@
+{
+  "name": "desktop_docx_save",
+  "description": "Build a .docx report from captured images, text sections and tables; pure local file work, background friendly.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string"
+      },
+      "title": {
+        "type": "string"
+      },
+      "sections": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "properties": {
+            "heading": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string",
+              "maxLength": 65536
+            },
+            "image": {
+              "type": "object",
+              "properties": {
+                "capture_id": {
+                  "type": "string"
+                },
+                "image_path": {
+                  "type": "string"
+                },
+                "caption": {
+                  "type": "string"
+                },
+                "width_cm": {
+                  "type": "number",
+                  "minimum": 1,
+                  "maximum": 18
+                }
+              },
+              "required": [],
+              "additionalProperties": false
+            },
+            "table": {
+              "type": "object",
+              "properties": {
+                "rows": {
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "required": [
+                "rows"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": [
+      "sections"
+    ],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_docx_save",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}
