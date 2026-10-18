@@ -277,7 +277,7 @@ fn mouse(session: &Session, args: &Value) -> Result<ToolExecution, ToolError> {
         return Err(invalid("unknown mouse action"));
     }
     if let Some(hwnd) = optional_i64(args, "hwnd")? {
-        ensure_foreground(hwnd)?;
+        let _ = ensure_foreground(hwnd)?;
     }
     let has_capture = args.get("capture_id").is_some();
     let has_element = args.get("element_id").is_some();
@@ -449,8 +449,9 @@ fn input(session: &Session, args: &Value) -> Result<ToolExecution, ToolError> {
             None => return Err(error),
         },
     };
+    let mut target_hwnd: Option<i64> = None;
     if let Some(hwnd) = hwnd {
-        ensure_foreground(hwnd)?;
+        target_hwnd = Some(ensure_foreground(hwnd)?);
     }
     let text = args.get("text").and_then(Value::as_str).unwrap_or("");
     let send = args.get("send").and_then(Value::as_str).unwrap_or("enter");
@@ -507,7 +508,7 @@ fn input(session: &Session, args: &Value) -> Result<ToolExecution, ToolError> {
         }
     }
     Ok(ToolExecution::wrote(
-        json!({ "mode": mode, "dispatch_state": "sent" }),
+        json!({ "mode": mode, "target_hwnd": target_hwnd, "dispatch_state": "sent" }),
         DispatchState::Sent,
     ))
 }
@@ -1312,15 +1313,18 @@ fn resolve_input_target(session: &Session, args: &Value) -> Result<Option<i64>, 
     Ok(Some(binding.hwnd))
 }
 
-fn ensure_foreground(hwnd: i64) -> Result<(), ToolError> {
+fn ensure_foreground(hwnd: i64) -> Result<i64, ToolError> {
+    // 模态对话框（原生 Save/Open 等）会禁用其所有者窗口；此时输入与焦点必须
+    // 重定向到它的当前活动弹窗，否则会被错误地抢回主窗口。返回实际生效窗口。
+    let hwnd = platform::active_input_window(hwnd)?;
     let info = platform::window_info(hwnd)?;
     if info["foreground"].as_bool() == Some(true) {
-        return Ok(());
+        return Ok(hwnd);
     }
     if platform::activate_window(hwnd)?
         || platform::window_info(hwnd)?["foreground"].as_bool() == Some(true)
     {
-        Ok(())
+        Ok(hwnd)
     } else {
         Err(ToolError::new(
             ErrorCode::TargetUnavailable,

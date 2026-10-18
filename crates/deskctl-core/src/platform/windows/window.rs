@@ -6,13 +6,14 @@ use windows::Win32::System::Threading::{
     AttachThreadInput, GetCurrentThreadId, OpenProcess, QueryFullProcessImageNameW,
     PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
-use windows::Win32::UI::Input::KeyboardAndMouse::SetActiveWindow;
+use windows::Win32::UI::Input::KeyboardAndMouse::{IsWindowEnabled, SetActiveWindow};
 use windows::Win32::UI::WindowsAndMessaging::{
-    BringWindowToTop, EnumWindows, GetAncestor, GetClassNameW, GetForegroundWindow, GetWindowRect,
-    GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow,
-    IsWindowVisible, SetForegroundWindow, SetWindowPos, ShowWindow, SwitchToThisWindow,
-    WindowFromPoint, GA_ROOT, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-    SWP_NOZORDER, SWP_SHOWWINDOW, SW_RESTORE, SW_SHOW,
+    BringWindowToTop, EnumWindows, GetAncestor, GetClassNameW, GetForegroundWindow,
+    GetLastActivePopup, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
+    GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, SetForegroundWindow,
+    SetWindowPos, ShowWindow, SwitchToThisWindow, WindowFromPoint, GA_ROOT, HWND_NOTOPMOST,
+    HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SW_RESTORE,
+    SW_SHOW,
 };
 
 pub fn windows_list() -> Result<Vec<Value>, ToolError> {
@@ -59,6 +60,24 @@ pub fn window_at_point(x: i32, y: i32) -> Result<Option<Value>, ToolError> {
     let root = unsafe { GetAncestor(hwnd, GA_ROOT) };
     let target = if root.0 != 0 { root } else { hwnd };
     Ok(Some(info_for(target)?))
+}
+
+/// 模态对话框（原生 Save/Open 等）会将其所有者窗口置为禁用；此时输入与焦点
+/// 必须重定向到它的当前活动弹窗，否则会被错误地抢回主窗口。窗口正常启用时
+/// 原样返回。
+pub fn active_input_window(hwnd: i64) -> Result<i64, ToolError> {
+    let raw = handle(hwnd)?;
+    if !unsafe { IsWindow(raw) }.as_bool() {
+        return Err(unavailable(raw));
+    }
+    if unsafe { IsWindowEnabled(raw) }.as_bool() {
+        return Ok(hwnd);
+    }
+    let popup = unsafe { GetLastActivePopup(raw) };
+    if popup.0 == 0 || popup == raw {
+        return Ok(hwnd);
+    }
+    Ok(i64::try_from(popup.0).unwrap_or(hwnd))
 }
 
 pub fn find_window_by_title(title: &str) -> Result<Option<i64>, ToolError> {

@@ -32,6 +32,10 @@
   不视为遮挡）。遮挡检测是"防误点"，不是安全边界。
 - 语义动作 `delivery_mode` 默认 `auto`（后台优先、失败回退前台）；`restore_foreground=true`
   时动作后尽力还原原前台窗口，受 Windows 前台锁影响可能失败，结果字段如实返回。
+- 目标窗口被模态对话框（原生 Save/Open 等）禁用时，`desktop_input` 与鼠标置前会自动
+  重定向到该对话框窗口（响应字段 `target_hwnd` 为实际目标）；对话框关闭后自动恢复。
+- 语义动作仍以绑定的窗口为目标：需要操作原生对话框时，应先用 `desktop_targets_list`
+  找到对话框窗口并显式绑定（类 `#32770`），或在 `delivery_mode=background` 下执行。
 - 自定义截图路径不受沙箱限制，调用方负责路径与覆盖策略。
 - 会话关闭只清理 `%TEMP%` 下的会话截图；默认 `%LOCALAPPDATA%\deskctl\captures`
   视为持久产物，不随会话关闭删除。

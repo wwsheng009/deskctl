@@ -21,8 +21,8 @@ mod imp {
         observe_window, perform_action, ActionOptions, UiNode, UiaAction,
     };
     pub use super::windows::window::{
-        activate_window, find_window_by_title, move_window, resize_window, window_at_point,
-        window_info, windows_list,
+        activate_window, active_input_window, find_window_by_title, move_window, resize_window,
+        window_at_point, window_info, windows_list,
     };
 }
 
@@ -135,6 +135,9 @@ mod imp {
         Err(unsupported())
     }
     pub fn window_at_point(_x: i32, _y: i32) -> Result<Option<serde_json::Value>, ToolError> {
+        Err(unsupported())
+    }
+    pub fn active_input_window(_hwnd: i64) -> Result<i64, ToolError> {
         Err(unsupported())
     }
 
