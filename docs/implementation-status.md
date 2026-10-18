@@ -13,7 +13,7 @@
 | M2 Windows 无状态工具 | 完成 | 截图、窗口、鼠标、键盘、剪贴板、找图/找色/找字、等待 |
 | M3 Daemon 与多 session | 完成 | Named Pipe daemon、session 管理、资源门 |
 | M4 MCP 服务 | 完成 | initialize / tools/list / tools/call / prompts |
-| M5 视觉与模型 | 部分完成 | PaddleOCR 可用；YOLO 尚未接入 |
+| M5 视觉与模型 | 完成 | PaddleOCR 与 YOLO 均已接入并真机验证 |
 | M6 Windows UIA 语义工具 | 部分完成 | 观察/候选/执行/验证可用；agent_step 未实现 |
 | M7 Skills 与 profiles | 完成 | 5 个 skills、profile 过滤、契约导出 |
 | M8 打包与发布 | 部分完成 | 运行时/模型获取脚本完成；安装包未做 |
@@ -28,6 +28,8 @@
 - `deskctl tool desktop_mouse --json '{"action":"position"}'`
 - `deskctl tool desktop_screenshot`（含自定义路径、区域截图、扩展名强制 PNG）
 - `deskctl tool desktop_perceive`（PaddleOCR 文本元素识别）
+- `deskctl tool desktop_perceive`（YOLO 图标元素识别）
+- `deskctl tool desktop_find_text`（PaddleOCR 文本匹配）
 - `deskctl serve` + Named Pipe
 - `deskctl session create/list`
 - `deskctl call <session> desktop_screenshot`
@@ -99,10 +101,8 @@ pwsh scripts/fetch-models.ps1
 
 ### 高优先级
 
-- YOLO 图标检测尚未接入 `desktop_perceive`
 - `desktop_vision` 需要外部视觉 provider，当前返回 `model_unavailable`
 - `desktop_agent_step` 需要增强决策 provider，当前返回 `model_unavailable`
-- `desktop_find_text` 的字库匹配尚未实现（当前返回未实现错误）
 - `desktop_find_image` 的模板匹配为简化实现
 
 ### 中优先级
@@ -138,9 +138,7 @@ pwsh scripts/fetch-models.ps1
 
 未满足或未验证：
 
-- AC-PER-002（YOLO）
-- AC-PER-003（OCR/YOLO 合并）
-- AC-FIND-006（找字）
+- AC-PER-003（OCR/YOLO 合并去重）
 - AC-SEM-006（持久化动作端到端）
 - AC-SEM-012（agent_step）
 - AC-SESS-003/004/006/007/008/009

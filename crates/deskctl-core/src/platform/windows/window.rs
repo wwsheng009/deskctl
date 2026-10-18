@@ -3,12 +3,14 @@ use serde_json::{json, Value};
 use windows::core::PWSTR;
 use windows::Win32::Foundation::{BOOL, HWND, LPARAM, RECT};
 use windows::Win32::System::Threading::{
-    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+    AttachThreadInput, GetCurrentThreadId, OpenProcess, QueryFullProcessImageNameW,
+    PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetClassNameW, GetForegroundWindow, GetWindowRect, GetWindowTextLengthW,
     GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible,
-    SetForegroundWindow, SetWindowPos, ShowWindow, SWP_NOACTIVATE, SWP_NOZORDER, SW_RESTORE,
+    SetForegroundWindow, SetWindowPos, ShowWindow, HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE,
+    SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SW_RESTORE,
 };
 
 pub fn windows_list() -> Result<Vec<Value>, ToolError> {
@@ -86,11 +88,28 @@ pub fn activate_window(hwnd: i64) -> Result<bool, ToolError> {
     unsafe {
         if IsIconic(hwnd).as_bool() {
             let _ = ShowWindow(hwnd, SW_RESTORE);
+            std::thread::sleep(std::time::Duration::from_millis(350));
         }
+        let target_thread = GetWindowThreadProcessId(hwnd, None);
+        let current_thread = GetCurrentThreadId();
+        let _ = AttachThreadInput(current_thread, target_thread, true);
         let _ = SetForegroundWindow(hwnd);
+        if GetForegroundWindow() != hwnd {
+            let _ = SetWindowPos(
+                hwnd,
+                HWND_TOP,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+            );
+            let _ = SetForegroundWindow(hwnd);
+        }
+        let _ = AttachThreadInput(current_thread, target_thread, false);
+        std::thread::sleep(std::time::Duration::from_millis(120));
     }
-    let foreground = unsafe { GetForegroundWindow() };
-    Ok(foreground == hwnd)
+    Ok(unsafe { GetForegroundWindow() } == hwnd)
 }
 
 pub fn move_window(hwnd: i64, x: i32, y: i32) -> Result<(), ToolError> {

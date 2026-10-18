@@ -580,18 +580,46 @@ fn find_text(engine: &Engine, args: &Value) -> Result<ToolExecution, ToolError> 
             "dict_name must be a basename without path separators",
         ));
     }
-    if !engine.models().ocr_available() {
-        return Err(ToolError::new(
-            ErrorCode::ModelUnavailable,
-            "OCR dictionary/model is unavailable; run deskctl doctor",
-        )
-        .retryable(false));
+    let words = required_str(args, "words")?;
+    let region = optional_region(args);
+    let capture = platform::capture_screen(region)?;
+    let elements = engine
+        .vision()
+        .perceive(&capture.image, Some(capture.screen_rect))?;
+    let targets: Vec<&str> = words
+        .split('|')
+        .map(str::trim)
+        .filter(|word| !word.is_empty())
+        .collect();
+    let mut matches = Vec::new();
+    for element in &elements {
+        if targets.iter().any(|word| element.text.contains(word)) {
+            let center = element.screen_center.unwrap_or((
+                capture.screen_rect.x + element.rect.x + element.rect.width as i32 / 2,
+                capture.screen_rect.y + element.rect.y + element.rect.height as i32 / 2,
+            ));
+            matches.push(json!({
+                "word": element.text,
+                "x": center.0,
+                "y": center.1,
+                "width": element.rect.width,
+                "height": element.rect.height,
+                "confidence": element.confidence,
+                "dict": dict_name
+            }));
+        }
     }
-    Err(ToolError::new(
-        ErrorCode::ModelUnavailable,
-        "find_text OCR backend is unavailable in this build",
-    )
-    .retryable(false))
+    let found = !matches.is_empty();
+    Ok(ToolExecution::read(json!({
+        "found": found,
+        "match_count": matches.len(),
+        "matches": matches,
+        "region": capture.screen_rect,
+        "engine": "paddle_ocr",
+        "fallback_hint": if found { Value::Null } else {
+            json!("OCR found no text containing the requested words in this region")
+        }
+    })))
 }
 
 async fn wait_for(args: &Value, cancel: &CancelFlag) -> Result<ToolExecution, ToolError> {
