@@ -147,6 +147,8 @@ enum SessionCommands {
 
 #[tokio::main]
 async fn main() {
+    // 统一坐标系：鼠标/窗口/UIA/截图都按物理像素工作（见 platform::windows::dpi）。
+    deskctl_core::platform::init_process_dpi_awareness();
     let cli = Cli::parse();
     let mut profile = match cli.profile.parse::<ToolProfile>() {
         Ok(profile) => profile,

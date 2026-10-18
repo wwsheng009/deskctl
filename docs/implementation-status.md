@@ -45,6 +45,8 @@
 - `desktop_screenshot --json '{"path":"x.jpg","format":"png"}'` 显式 format 覆盖扩展名，写出 `x.png`；省略 format 时保持 `.jpg` → jpeg
 - `desktop_semantic_execute` → `desktop_verify_state value_equals` 真机闭环：目标处于非前台时激活成功后写入并 `satisfied=true`
 - `desktop_window_activate` 在后台 daemon 中可置前目标窗口（attach 前台/目标输入队列 + `SetActiveWindow` + `SwitchToThisWindow` 兜底）
+- DPI 缩放坐标统一（Per-Monitor-V2，`doctor` 报告 dpi 感知与系统 DPI）：150% 缩放下以
+  物理像素坐标直接双击桌面图标命中；窗口枚举/截图/UIA 与鼠标共用同一坐标系
 
 ## 3. 测试状态
 

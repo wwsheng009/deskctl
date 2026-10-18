@@ -66,6 +66,7 @@ pub fn report() -> Value {
             "windows": cfg!(windows),
             "supported_first_phase": cfg!(windows),
         },
+        "dpi": crate::platform::dpi_diagnostics(),
         "paths": {
             "config_dir": config::config_dir().display().to_string(),
             "data_dir": config::data_dir().display().to_string(),

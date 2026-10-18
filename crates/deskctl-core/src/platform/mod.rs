@@ -12,6 +12,7 @@ mod imp {
         screen_size, CapturedImage,
     };
     pub use super::windows::clipboard::{clean as clipboard_clean, write_text as clipboard_write};
+    pub use super::windows::dpi::{diagnostics as dpi_diagnostics, init_process_dpi_awareness};
     pub use super::windows::input::{
         drag, hotkey, is_valid_key, key_to_vk, mouse_click, mouse_move, mouse_position,
         mouse_scroll, type_text,
@@ -41,6 +42,14 @@ mod imp {
             "desktop automation requires Windows 10/11",
         )
         .retryable(false)
+    }
+
+    pub fn init_process_dpi_awareness() -> &'static str {
+        "unsupported"
+    }
+
+    pub fn dpi_diagnostics() -> serde_json::Value {
+        serde_json::json!({ "awareness": "unsupported" })
     }
 
     pub fn capture_screen(_region: Option<ScreenRect>) -> Result<CapturedImage, ToolError> {
