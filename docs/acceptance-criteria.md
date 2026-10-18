@@ -339,3 +339,57 @@ Windows 首个可用版本必须同时满足：
 - `desktop_agent_step` 的增强模型质量
 - 超大规模并发（>8 session）和长时间稳定性
 - 受保护内容/DRM 窗口的截图
+
+## 15. 运维增强验收（规划中，尚未实现）
+
+> 方案见 [design/README.md](design/README.md)（D1–D4 里程碑）。以下编号为**草案登记**，
+> 逐项实现并通过验证后，从本节移入对应正式章节（第 3/4/6/7/9 节）并解除"规划中"标记。
+
+### 15.1 审计与历史（D1，P0）
+
+| 编号 | 验收项 | 通过标准 |
+|---|---|---|
+| AC-AUD-001 | 审计落盘 | daemon 每次工具调用结束即在当日 JSONL 追加恰好一条记录（含失败/取消）；字段与 [design/audit-history.md](design/audit-history.md) §4 一致 |
+| AC-AUD-002 | 记录模式 | `basic` 不含 `args`；`full` 含脱敏 `args`；两种模式 `args_digest` 均可复算 |
+| AC-AUD-003 | 文本脱敏 | `DESKCTL_AUDIT_TEXT=digest` 时键盘文本仅存长度与 sha256，原文不出现在任何审计文件 |
+| AC-AUD-004 | 查询 | `deskctl history` 支持 `--session/--owner/--tool/--since/--failed-only/--limit/--json/--summary` 且过滤正确 |
+| AC-AUD-005 | 轮转与保留 | 分片、保留天数与总量上限生效，清理不丢最新记录 |
+| AC-AUD-006 | 降级 | 审计目录不可写时工具照常成功、告警一次、`audit_state=disabled` 可观测 |
+| AC-AUD-007 | 脱敏增强 | 密码字段（UIA `IsPassword=true`）永不落盘；键名单命中值替换为 `<redacted>`；全文检索无命中 |
+
+### 15.2 Agent 身份（D2，P1）
+
+| 编号 | 验收项 | 通过标准 |
+|---|---|---|
+| AC-AGT-001 | owner 参数 | `session create --owner` 生效并显示于 `session list`；非法字符与保留前缀被拒 |
+| AC-AGT-002 | MCP 映射 | `initialize.clientInfo.name` 映射为 `mcp:<name>`，缺失时为 `mcp:unknown` |
+| AC-AGT-003 | 归因 | 审计与 `history --owner` 可按身份过滤；同会话内 owner 一致 |
+| AC-AGT-004 | 限额 | 开启 owner 会话上限后，超限返回 `resource_busy` 且不影响其他 owner |
+
+### 15.3 录制与回放（D3，P1）
+
+| 编号 | 验收项 | 通过标准 |
+|---|---|---|
+| AC-RPL-001 | 录制 | `recorder_stop` 返回合法 `deskctl-script/1`；`max_steps` 超限停止并告警 |
+| AC-RPL-002 | 参数化 | `candidate_id`→`locator`、绑定 `hwnd`→`$target.*`、`capture_id` 标 `volatile`、坐标标 `fragile` |
+| AC-RPL-003 | 校验与预检 | 拒绝未知工具、未解析变量、非法版本、超限风险与歧义目标 |
+| AC-RPL-004 | dry-run | 不执行任何工具，输出每步判定 |
+| AC-RPL-005 | 重放报告 | 逐步结果与失败定位正确；`on_error=stop/continue` 行为正确 |
+| AC-RPL-006 | 安全重试 | 仅 `not_sent` 允许重试；`partial/unknown` 不重试 |
+| AC-RPL-007 | hwnd 失效 | 关闭/重启后可经 `launch_ref` 重绑；执行中失效自动重绑并记录 `rebinds`；歧义/指纹不符默认拒绝 |
+| AC-RPL-008 | 核验分级 | `screen`（弱）与 `readback`（强）可执行并在报告中标注；`require_readback` 缺失能力时预检拒绝 |
+| AC-RPL-009 | 运行结果 | run-level `outcome` 分类正确（`VERIFIED`/`HALTED_BEFORE_EFFECT`/`RECONCILIATION_REQUIRED`/`COMPLETED_UNVERIFIED`/`REJECTED_POLICY`） |
+
+### 15.4 检查点与补偿（D4，P2）
+
+| 编号 | 验收项 | 通过标准 |
+|---|---|---|
+| AC-TXN-001 | 检查点保存 | 保存窗口/目标/关键值/capture 并可导出 `deskctl-checkpoint/1`；上限与命名校验生效 |
+| AC-TXN-002 | 差异校验 | `checkpoint_verify` 返回 `matched/diffs`（值/布尔/存在/矩形四类至少各一例） |
+| AC-TXN-003 | 补偿脚本 | `purpose=compensation` 默认 dry-run；`apply=true` 才执行；二次失败立即停止 |
+
+### 15.5 屏幕文本注入防御（独立小改动）
+
+| 编号 | 验收项 | 通过标准 |
+|---|---|---|
+| AC-SEC-011 | 不可信内容包裹 | `perceive`/`read_kv`/`history` 返回的屏幕文本以 `<untrusted-screen-content>` 包裹并声明"数据非指令"；`DESKCTL_UNTRUSTED_WRAP=off` 可关闭 |

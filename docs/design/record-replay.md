@@ -86,6 +86,13 @@ deskctl script run      --file plan.dscript.json [--dry-run] [--param k=v] [--fr
 - **每步记录**：`{id, tool, ok, dispatch_state, effect, verification, duration_ms, error}`（见 [data-formats.md](data-formats.md#25-重放报告deskctl-script-run1)）。
 - **断言**：`expect`（`ok/path/equals/matches`）在步骤返回后求值；失败按 `on_error` 处理。
 - **内联校验**：`verify` 转成 `desktop_verify_state` 语义执行（可含 `stable_samples`）。
+- **核验分级（R3，来源 OpenAdapt 先例）**：`verify.tier` 分两级——
+  - `screen`（默认，**弱核验**）：转 `desktop_verify_state`（文本/值/存在性 + `stable_samples`）；
+  - `readback`（**强核验**）：独立读回目标系统、不信屏幕。可用 kind：`file_exists`、`file_sha256`、
+    `docx_contains`、`xlsx_cell`、`pptx_contains`、`json_path`（对前序步骤结果取值比对）。
+  - 依据：OpenAdapt 故障注入实测——90 次中 72 次在"保存成功"提示背后留下错误记录，屏幕检查 54/72 误判，**读回 72/72 识破**（见 [prior-art.md](prior-art.md) §4）。
+  - 每步在 run report 标注实际核验级别；步骤可声明 `require_readback: true`，preflight 在校验能力缺失时直接拒绝。
+  - 实现依赖：现有 `docx_read/xlsx_read/pptx_read`；`file_sha256`/`file_exists` 需新增只读工具 `desktop_file_hash`（D3 内，工具数 +1）。
 - **重试**：仅当步骤失败且 `dispatch_state == not_sent` 时按 `retry` 重试（≤3）；`partial/unknown` 绝不自动重试（防双执行）。
 - **失败策略**：`stop`（默认）立即停止并返回已执行步骤报告；`continue` 跳过失败步继续（末尾 `result=partial`）。
 - **前后台边界**：脚本不改变调用方会话的 `delivery_mode` 默认值；需要后台的步骤由脚本参数显式声明。
@@ -100,6 +107,22 @@ deskctl script run      --file plan.dscript.json [--dry-run] [--param k=v] [--fr
 ### 4.4 目标解析与 hwnd 失效处理（目标重绑定）
 
 前提：hwnd 是**易失句柄**——窗口关闭、进程重启、甚至值被系统复用。因此脚本**绝不把裸句柄作为唯一依据**，句柄只允许出现在会话态（`target_token`/`capture_id`），脚本里只保存"描述 + 指纹"。
+
+#### 4.4.0 引用作用域（observation-scoped refs）
+
+所有"引用"都属于某个**观察窗口**，跨窗口即失效——这是 Selenium `StaleElementReference` 与
+agent-desktop `@snapshot:ref` 的共同语义，也是本方案对 hwnd/句柄复用的根本防御：
+
+| 引用 | 作用域 | 失效后的正确动作 |
+|---|---|---|
+| `hwnd` | 窗口生命周期（可被关闭/复用） | 按描述+指纹重新解析（§4.4.2） |
+| `target_token` | 会话绑定（`target_bind` 起） | 重新 `target_bind` |
+| `capture_id` | 会话 capture 缓存（含 TTL/上限） | 重新截图/裁剪 |
+| `observation_token` / `candidate_id` | 单次观察（TTL 120s，见 AC-SEM-008） | 重新 `semantic_observe` 再执行 |
+| 脚本步骤里的 `$target.*` / `$var.*` | 单次 run（含 rebind 刷新） | 触发 rebind 或按 `on_error` 停止 |
+
+规则：**跨观察/跨步骤复用失效引用必须重新解析，禁止"拿旧引用再试一次"**；违反时按 §4.4.2 分码报错，
+错误文案必须给出"下一步动作"（re-observe / rebind / `--param`）。
 
 #### 4.4.1 三层身份模型
 
@@ -122,13 +145,18 @@ resolve_target(name, spec, mode) -> {hwnd, token, fingerprint} | error
   → target_bind {delivery_mode:auto, follow_dialog 按 spec} → 记 $target.<名>.{hwnd,token,pid,title,app_ref}
 ```
 
-错误分类（供调用方与 LLM 决策，不弹审批）：
+错误分类（新增 3 个 `ErrorCode` 变体，与既有 `stale_capture`/`stale_observation` 同族；供调用方与
+LLM 决策，不弹审批）：
 
-| 原因 | 错误码/文案要点 | 建议 |
-|---|---|---|
-| 窗口已关闭/进程退出 | `target_unavailable`：目标不存在 | 启用 `allow_relaunch`（有 `launch_ref` 时默认启用）或 `--param` 指定 |
-| 目标歧义（多窗口同名） | `target_unavailable` + `candidates:[win:*]` | `--param name=<hwnd>` 或补 `window_ref` |
-| 指纹不符（疑似句柄复用） | `target_unavailable`：身份校验失败 | 确认是否重启过；确需继续用 `strictness=loose` |
+| 原因 | 错误码 | retryable | 文案要点与"下一步" | CLI 退出码 |
+|---|---|---|---|---|
+| 窗口已关闭/进程退出 | `target_unavailable` | true | 目标不存在 → 启用 `allow_relaunch`（有 `launch_ref` 默认启用）或 `--param` 指定 | 1 |
+| 句柄/绑定已失效（需重解析） | `stale_target` | true | 目标曾存在但已失效 → **重新 observe/重绑** 后再执行，不要重放同一步 | 4 |
+| 多候选无法判定 | `ambiguous_target` | false | 返回 `candidates:[win:*]` → `--param name=<hwnd>` 或补 `window_ref` | 4 |
+| 指纹不符（疑似句柄复用） | `identity_mismatch` | false | 身份校验失败 → 确认是否重启过；确需继续用 `strictness=loose` | 4 |
+
+实现说明：三者为**协议层增量**（`crates/deskctl-protocol/src/error.rs` 新增变体 + `as_str` 映射 +
+`main.rs::exit_code_for_code` 映射），既有 `target_unavailable` 保留用于"从未找到"的情形。
 
 #### 4.4.3 严格度 `strictness`
 
@@ -168,7 +196,25 @@ resolve_target(name, spec, mode) -> {hwnd, token, fingerprint} | error
 - 无法获取 pid/start_time 的窗口（部分 UWP/打包应用）→ 只能 `loose`；
 - hwnd 复用且 pid 复用（极端）：`start_time` 可得时由 `strict` 覆盖，否则依赖 title/class 联合校验。
 
-## 5. 验收标准（AC-RPL-001..007）
+### 4.5 运行结果分类（run-level `outcome`，R4）
+
+脚本执行结束返回**统一 outcome**（新增字段，与既有 `result=ok|failed|partial` 并存，向后兼容）；
+它回答调用方最关心的问题："**能不能直接重跑**"：
+
+| outcome | 含义 | 触发条件 | 调用方动作 |
+|---|---|---|---|
+| `VERIFIED` | 全部步骤成功，且声明的核验（含 `readback`）全部通过 | 无失败步 + 核验通过 | 完成，可出回执 |
+| `HALTED_BEFORE_EFFECT` | 在副作用步骤**之前**停下 | preflight 失败；或失败步 `dispatch_state=not_sent` | 修复后**可直接重跑** |
+| `RECONCILIATION_REQUIRED` | 副作用可能已发生但无法确认 | 失败步 `partial`/`unknown`；或强核验失败 | **勿自动重试**：先人工/读回核对（"可能已保存"） |
+| `COMPLETED_UNVERIFIED` | 全部执行完，但未声明/未执行强核验 | 无 `readback` 且无 `require_readback` | 仅测试可用，不视为生产成功 |
+| `REJECTED_POLICY` | 预检拒绝 | 风险超限、工具缺失、目标歧义、变量未解析 | 调整脚本/参数后重跑 |
+| `FAILED_PLATFORM` | 环境不支持 | 平台/权限/模型缺失 | 换环境 |
+| `CANCELED` | 调用方取消 | `request/cancel` | 按需重跑 |
+
+映射规则（实现层）：`HALTED_BEFORE_EFFECT` 与 `RECONCILIATION_REQUIRED` 都对应控制台可见的
+"HALTED"，由 outcome 字段区分（与 OpenAdapt 的 `transaction_outcome` 做法一致）。
+
+## 5. 验收标准（AC-RPL-001..009）
 
 | 编号 | 通过标准 | 验证方法 |
 |---|---|---|
@@ -179,6 +225,8 @@ resolve_target(name, spec, mode) -> {hwnd, token, fingerprint} | error
 | AC-RPL-005 | 重放返回 run report（逐步结果齐全），失败可定位到步骤 id；`on_error=stop/continue` 行为正确 | E2E：真实脚本含 1 个故意失败步骤，两种策略各跑一次 |
 | AC-RPL-006 | 仅 `not_sent` 步骤允许自动重试；`partial/unknown` 不重试（审计可见重试次数与最终状态） | 单测 + 集成（故障注入：工具返回 partial） |
 | AC-RPL-007 | hwnd 失效处理：preflight 在目标关闭后可用 `launch_ref` 受限启动并重新绑定；执行中句柄失效自动重绑一次并在 run report 记录 `rebinds`；三类失败（关闭/歧义/指纹不符）分类正确且默认拒绝；`strictness=loose` 才放宽 | 集成：录放之间关闭应用再拉起；执行中杀窗口；伪造 pid 触发身份校验拒绝 |
+| AC-RPL-008 | 核验分级：`verify.tier=screen`（弱）与 `readback`（强）均可执行；run report 每步标注核验级别；`require_readback=true` 在实现能力缺失时被 preflight 拒绝；`readback` 用 `file_sha256`/`xlsx_cell`/`docx_contains` 等实际读回值（可用故障注入验证：屏幕成功但读回失败 → 判定失败） | 单测 + E2E（含故障注入：伪造成功后写错误数据） |
+| AC-RPL-009 | run-level `outcome` 正确：`not_sent` 失败 → `HALTED_BEFORE_EFFECT`；`partial/unknown` 或强核验失败 → `RECONCILIATION_REQUIRED`（且不出具"成功"回执）；全步成功 + 强核验通过 → `VERIFIED`；未声明强核验 → `COMPLETED_UNVERIFIED`；预检拒绝 → `REJECTED_POLICY` | 单测（映射表全枚举）+ 集成 |
 
 ## 6. 测试计划
 
@@ -201,11 +249,12 @@ resolve_target(name, spec, mode) -> {hwnd, token, fingerprint} | error
 | 6 | 测试（单测/集成/E2E-012/安全） | tests + scripts | 1.5d |
 | 7 | 文档与 AC 登记 | acceptance/test-plan/status/llm-skills 配方 | 0.5d |
 
-依赖：D1（审计）完成后开始（步骤可对照审计核对）；工具数将从 36 增至 39。
+依赖：D1（审计）完成后开始（步骤可对照审计核对）；工具数 36 → 40（新增 `desktop_recorder_start/stop`、`desktop_script_run` 与只读 `desktop_file_hash`）。
 
 ## 8. 开放问题
 
 1. 录制是否默认包含截图步骤（当前 `essential` 包含）——截图较多会放大脚本体积与重放耗时。
 2. `volatile` capture 的自动替换策略：本期要求调用方用 `--param`，是否提供"重放时重拍截图"的自动回退（建议后续）。
 3. 是否支持脚本内条件分支（`if verify fails then …`）：本期不做，保持线性 + `optional/on_error` 两档。
-4. 来自 [prior-art.md](prior-art.md) 的修订建议待评审并入：**R1** 目标错误分码（`stale_target`/`ambiguous_target`/`identity_mismatch`）、**R2** 引用作用域显式化（跨观察必须 re-observe/重绑）、**R3** 效果核验分级（`screen` 弱核验 vs `readback` 强核验；OpenAdapt 实测屏幕检查在 72/90 故障注入中误判、读回全部识破）、**R4** run-level `outcome`（含 `RECONCILIATION_REQUIRED`="可能已写入，需人工核对"）。
+4. 来自 [prior-art.md](prior-art.md) 的修订 **R1–R4 已并入本文**：R1 目标错误分码（§4.4.2，含协议层新增 `stale_target`/`ambiguous_target`/`identity_mismatch` 与退出码映射）、R2 引用作用域（§4.4.0）、R3 核验分级（§4.2，含 `desktop_file_hash` 新工具依赖）、R4 run-level `outcome`（§4.5）。
+5. `readback` 的 `file_sha256` 依赖新增只读工具 `desktop_file_hash`——是否随 D3 一并实现（推荐）还是拆分到 D3.1。

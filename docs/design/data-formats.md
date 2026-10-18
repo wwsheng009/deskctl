@@ -126,7 +126,8 @@ JSONL：一行一条。`format` 不在每行重复，由文件头约定（文件
 | `params` | object | 工具入参；字符串值可含 `$…` 引用 |
 | `expect` | object? | 结果断言：`{ok?, path?, equals?, matches?, not_matches?}`（`path` 为对 `data` 的点路径） |
 | `set` | object? | 变量绑定：`{"<name>": "$result.data.<path>"}`（或 `$result.<path>`） |
-| `verify` | object? | 内联校验：把 `{kind, value, stable_samples?}` 转成 `desktop_verify_state` 语义（复用其 `expectation`） |
+| `verify` | object? | 内联校验：`{tier:"screen"(默认)｜"readback", ...}`，两种 tier 的字段见 §2.6 |
+| `require_readback` | bool? | true 时该步必须具备 readback 级核验（本步 `verify.tier=readback` 或 run 级声明），否则 preflight 拒绝 |
 | `optional` | bool? | true 时失败不停（默认 false） |
 | `fragile` | bool? | 坐标类步骤（mouse/坐标裁剪）标记；`script run --no-fragile` 可跳过 |
 | `retry` | int? | 自动重试次数（0..3）；**仅当 `dispatch_state=not_sent`** 才允许（利用 `DispatchState::is_retry_safe`） |
@@ -150,9 +151,40 @@ JSONL：一行一条。`format` 不在每行重复，由文件头约定（文件
 ```json
 {"v":1,"format":"deskctl-script-run/1","script":"sap-st06-inspection","dry_run":false,
  "started":"...","finished":"...","result":"ok|failed|partial",
- "steps":[{"id":"s1","tool":"desktop_target_bind","ok":true,"dispatch_state":"sent","verification":"unknown","duration_ms":38,"error":null}],
- "stats":{"total":4,"ok":4,"failed":0,"skipped":0}}
+ "outcome":"VERIFIED|HALTED_BEFORE_EFFECT|RECONCILIATION_REQUIRED|COMPLETED_UNVERIFIED|REJECTED_POLICY|FAILED_PLATFORM|CANCELED",
+ "steps":[{"id":"s1","tool":"desktop_target_bind","ok":true,"dispatch_state":"sent","verification":"unknown",
+           "verify_tier":"readback|screen|null","rebind":null,"retries":0,"duration_ms":38,"error":null}],
+ "rebinds":[{"step":"s4","reason":"stale_target","from_hwnd":3345330,"to_hwnd":5702916,"relaunched":true}],
+ "stats":{"total":4,"ok":4,"failed":0,"skipped":0,"readback_verified":2}}
 ```
+
+`result` 与 `outcome` 并存：`result` 是粗粒度（ok/failed/partial），`outcome` 是决策级分类（语义与触发
+条件见 [record-replay.md §4.5](record-replay.md#45-运行结果分类run-level-outcomer4)）。**调用方应以
+`outcome` 决定是否重跑**：`HALTED_BEFORE_EFFECT` 可直接重跑，`RECONCILIATION_REQUIRED` 必须先核对。
+
+### 2.6 核验定义（`verify`，R3）
+
+```json
+"verify": { "tier": "screen", "kind": "text_present", "value": "操作系统监控器", "stable_samples": 2 }
+"verify": { "tier": "readback", "kind": "xlsx_cell", "target": "$steps.s5.result.data.path",
+            "sheet": "巡检指标", "cell": "C5", "equals": 4105 }
+```
+
+| tier | kind | 参数 | 说明 |
+|---|---|---|---|
+| `screen`（弱） | `text_present` / `value_equals` / `element_exists` / `checked` | `locator`(可选)、`value`、`stable_samples`(1..5) | 复用 `desktop_verify_state` 语义；只证明"界面看起来对" |
+| `readback`（强） | `file_exists` | `target`（前序步骤结果/参数里的路径） | 只读工具 `desktop_file_hash` 提供 |
+| | `file_sha256` | `target`、`sha256` | 同上；比对内容指纹 |
+| | `docx_contains` | `target`、`contains` | 调 `desktop_docx_read` 读回 |
+| | `xlsx_cell` | `target`、`sheet?`、`cell`(如 `C5`)、`equals`/`matches` | 调 `desktop_xlsx_read`（`region=A1:C5` 等）读回 |
+| | `pptx_contains` | `target`、`contains` | 调 `desktop_pptx_read` 读回 |
+| | `json_path` | `target`（前序步骤结果）、`path`(点路径)、`equals`/`contains` | 对 `$steps.*.result` 做结构化断言 |
+
+规则：
+
+1. `readback` 的 `target` 只能引用**前序步骤结果**或脚本参数（不新增任意路径读取能力；文件路径仍走允许根策略）。
+2. 校验失败 → 该步 `verification=failed`，run 的 `outcome` 至少为 `RECONCILIATION_REQUIRED`（不得判 `VERIFIED`）。
+3. run report 的 `stats.readback_verified` 统计强核验通过步数；`VERIFIED` 要求"所有声明 `readback` 的步骤通过"。
 
 ## 3. 检查点（`deskctl-checkpoint/1`）
 

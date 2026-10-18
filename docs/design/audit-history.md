@@ -90,6 +90,8 @@ CLI / MCP / oneshot ─┤                ├─► Engine::execute_with_session
 |---|---|
 | `desktop_input.text`（键盘文本） | 按 `DESKCTL_AUDIT_TEXT` 策略：`digest`（默认）= `text_len` + `text_sha256`；`none` = 两者都不记；`full` = 原文（仅建议在隔离环境） |
 | `desktop_clipboard_write.text` | 同上 |
+| UIA 密码字段（`IsPassword=true` / `AXSecureTextField`） | **永不记录**（在 digest/full 策略之前先屏蔽，连长度与摘要都不落） |
+| 参数键命中名单（`api_key`/`apikey`/`token`/`authorization`/`password`/`passwd`/`secret`，大小写不敏感） | 值替换为 `"<redacted>"`（不落明文、不落长度/摘要），并在记录中置 `args_redacted:true` |
 | `path` / `image_path` / `template_path` | 记录完整路径（运维需要定位产物） |
 | `screenshot` 等图像内容 | 不记录二进制；只记路径/尺寸/字节数（如已在结果中） |
 | `args` 中其它字符串 | 值长度 ≤256 原样；>256 截断并置 `args_truncated=true` |
@@ -164,7 +166,7 @@ deskctl history [--session <id>] [--owner <id>] [--tool <name>] [--since <rfc333
 - 门禁：对比 `scripts/perf-baseline.ps1` 基线（AC-PERF-001..009），**工具调用 p95 回退 <5%**；审计开启 vs 关闭各测一次，结果写入 `performance-baseline.md`。
 - 丢弃语义：队列满 → 丢弃当前记录、`audit_dropped+=1`；下一次成功写入时附加 `audit_dropped` 计数行（`kind="audit_health"`）。
 
-## 10. 验收标准（AC-AUD-001..006）
+## 10. 验收标准（AC-AUD-001..007）
 
 | 编号 | 通过标准 | 验证方法 |
 |---|---|---|
@@ -174,6 +176,7 @@ deskctl history [--session <id>] [--owner <id>] [--tool <name>] [--since <rfc333
 | AC-AUD-004 | `history` 支持 `--session/--owner/--tool/--since/--failed-only/--limit/--json/--summary`，过滤结果与手工比对一致 | 集成：预置记录集，逐项断言 |
 | AC-AUD-005 | 轮转与保留生效：超过 `MAX_FILE_MB` 切分片；超过 `RETAIN_DAYS`/`MAX_MB` 的老文件被清理且最新记录不丢 | 单测：小阈值 + 伪造时间戳文件 |
 | AC-AUD-006 | 审计目录不可写时工具照常成功，仅告警一次；`audit_state=disabled` 可观测 | 集成：只读目录模拟 |
+| AC-AUD-007 | 脱敏增强：密码字段（UIA `IsPassword=true`）值永不落盘；键名单（api_key/token/authorization/password/secret）命中的参数值替换为 `<redacted>` 并置 `args_redacted=true`；审计文件全文检索无命中 | 安全脚本：写入样例敏感值后全文检索 |
 
 ## 11. 测试计划
 
@@ -201,4 +204,4 @@ deskctl history [--session <id>] [--owner <id>] [--tool <name>] [--since <rfc333
 2. 队列满策略：丢弃+计数（当前设计）vs 背压阻塞（更完整但影响延迟）——建议维持丢弃。
 3. `session` 事件（create/close）是否入账：建议入账（`kind="session"`），便于归因窗口存活期。
 4. 是否需要 `history --follow`（tail -f 语义）：建议 D1 不做，留待 D3 与录制器联动。
-5. 脱敏与可信度增强（来自 [prior-art.md](prior-art.md) R5）：密码字段（UIA `IsPassword=true`）永不记录、key 名单（api_key/token/authorization/password/secret）、可选 OTLP 导出，以及**可选**哈希链 tamper-evident 档位（参考 agentlens）——评审后并入 §5/§8。
+5. 脱敏增强已并入（R5）：密码字段与键名单见 §5.1，验收见 AC-AUD-007。仍待定：可选 OTLP 导出（后续迭代），以及**可选**哈希链 tamper-evident 档位（参考 agentlens，与 §2.5"本地证据、非防篡改"定位相关，需单独评审）。

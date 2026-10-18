@@ -91,7 +91,7 @@ script run（带 checkpoint/compensation）
 | 4 | CLI：`--checkpoint`、`--apply-compensation` | `main.rs` | 0.25d |
 | 5 | 测试与文档 | tests + acceptance/status | 0.75d |
 
-依赖：D3（脚本执行器）完成后开始；工具数 39 → 41。
+依赖：D3（脚本执行器）完成后开始；工具数 40 → 42（新增 `desktop_checkpoint_save/verify`）。
 
 ## 9. 开放问题
 
