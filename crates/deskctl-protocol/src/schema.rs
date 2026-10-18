@@ -171,8 +171,11 @@ pub fn input_schema(name: ToolName) -> Value {
             &["image_path"],
         ),
         ToolName::Perceive => object(
-            json!({ "image_path": { "type": "string" } }),
-            &["image_path"],
+            json!({
+                "image_path": { "type": "string", "description": "Path inside an allowed image root" },
+                "capture_id": { "type": "string", "description": "Session capture (screenshot/crop) to read; bypasses the image-root policy" }
+            }),
+            &[],
         ),
         ToolName::FindImage => object(
             json!({
@@ -181,6 +184,18 @@ pub fn input_schema(name: ToolName) -> Value {
                 "threshold": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.9 }
             }),
             &["template_path"],
+        ),
+        ToolName::ReadKv => object(
+            json!({
+                "image_path": { "type": "string", "description": "Path inside an allowed image root" },
+                "capture_id": { "type": "string", "description": "Session capture (screenshot/crop) to read; bypasses the image-root policy" },
+                "region": rect(),
+                "value_gap": { "type": "integer", "minimum": 8, "maximum": 4000, "default": 600, "description": "Max horizontal (or vertical) distance between a label and its value" },
+                "row_tolerance": { "type": "integer", "minimum": 0, "maximum": 200, "default": 0, "description": "Row clustering tolerance in pixels; 0 = auto from median text height" },
+                "min_confidence": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.3 },
+                "max_pairs": { "type": "integer", "minimum": 1, "maximum": 2000, "default": 500 }
+            }),
+            &[],
         ),
         ToolName::FindColor => object(
             json!({
@@ -242,12 +257,13 @@ pub fn input_schema(name: ToolName) -> Value {
         ),
         ToolName::TargetBind => object(
             json!({
-                "app_ref": { "type": "string" },
+                "hwnd": { "type": "integer", "description": "Bind this exact window handle; mutually exclusive with app_ref/window_ref" },
+                "app_ref": { "type": "string", "description": "app:<pid>:<process> or a catalog app_ref from desktop_targets_list" },
                 "window_ref": { "type": "string" },
                 "delivery_mode": { "type": "string", "enum": ["foreground","auto","background"], "default": "foreground" },
                 "follow_dialog": { "type": "boolean", "default": false, "description": "When the selected window is disabled by a modal dialog (native Save/Open), bind that dialog instead" }
             }),
-            &["app_ref"],
+            &[],
         ),
         ToolName::SemanticObserve => object(
             json!({
@@ -477,8 +493,8 @@ mod tests {
 
     #[test]
     fn descriptors_have_stable_counts_and_names() {
-        assert_eq!(tool_descriptors(ToolProfile::Standard).len(), 33);
-        assert_eq!(tool_descriptors(ToolProfile::Full).len(), 35);
+        assert_eq!(tool_descriptors(ToolProfile::Standard).len(), 34);
+        assert_eq!(tool_descriptors(ToolProfile::Full).len(), 36);
         for descriptor in tool_descriptors(ToolProfile::Full) {
             assert!(descriptor["name"]
                 .as_str()

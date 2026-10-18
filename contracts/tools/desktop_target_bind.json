@@ -4,8 +4,13 @@
   "inputSchema": {
     "type": "object",
     "properties": {
+      "hwnd": {
+        "type": "integer",
+        "description": "Bind this exact window handle; mutually exclusive with app_ref/window_ref"
+      },
       "app_ref": {
-        "type": "string"
+        "type": "string",
+        "description": "app:<pid>:<process> or a catalog app_ref from desktop_targets_list"
       },
       "window_ref": {
         "type": "string"
@@ -25,9 +30,7 @@
         "description": "When the selected window is disabled by a modal dialog (native Save/Open), bind that dialog instead"
       }
     },
-    "required": [
-      "app_ref"
-    ],
+    "required": [],
     "additionalProperties": false
   },
   "annotations": {

@@ -301,6 +301,22 @@ styles.xml 含加粗字型与自定义 numFmt（≥164）、sheet XML 含 `custo
 结构可被 zip 直读校验并被 deskctl 读回（人工打开以 `artifacts/` 产物为准）；全程不抢前台
 （执行前后前台进程一致）。
 
+### E2E-011 巡检键值提取与运维自愈（capture_id / read_kv / 激活重试）
+
+```text
+target_bind {hwnd}（免 targets_list）-> semantic_action focus（text_field, ordinal=0）
+-> input /nST06（真实键入）-> 等待加载
+-> window_screenshot（capture_id）-> read_kv {capture_id, region, value_gap}
+-> perceive {capture_id}（元素坐标）-> 越界读取检查 policy_denied 文案
+```
+
+通过标准：`target_bind {hwnd}` 直接返回 token 并合成 `app:<pid>:<process>`；`read_kv` 在数值区
+返回 `pairs`，其中包含 `平均进程等待（5分钟）→0.36`、`CPU数量→16`、`用户利用率→2%` 这类
+标签-数值配对（伪配对带 `ambiguous=true`）；`perceive {capture_id}` 返回元素数 > 0 且不要求
+图像落盘；越界 `image_path` 的 `policy_denied` 消息内联允许根目录与 `DESKCTL_ALLOWED_INPUT_ROOT`/
+`capture_id` 两条出路；`window_activate` 返回 `attempts/method`，被隐藏（`visible=false`）的
+窗口在激活后恢复可见并可截图。
+
 ## 9. 并发与压力测试
 
 - 2/4/8 个 session 同时截图

@@ -6,6 +6,7 @@ use windows::Win32::System::Threading::{
     AttachThreadInput, GetCurrentThreadId, OpenProcess, QueryFullProcessImageNameW,
     PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
+use windows::Win32::UI::Input::KeyboardAndMouse::{keybd_event, KEYEVENTF_KEYUP};
 use windows::Win32::UI::Input::KeyboardAndMouse::{IsWindowEnabled, SetActiveWindow};
 use windows::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, EnumWindows, GetAncestor, GetClassNameW, GetForegroundWindow,
@@ -114,12 +115,31 @@ pub fn find_window_by_title(title: &str) -> Result<Option<i64>, ToolError> {
     }
 }
 
+/// 激活结果：是否成功、尝试次数与生效方式（供 `desktop_window_activate` 诊断）。
+#[derive(Debug, Clone, Copy)]
+pub struct ActivationReport {
+    pub active: bool,
+    pub attempts: u32,
+    pub method: &'static str,
+}
+
 pub fn activate_window(hwnd: i64) -> Result<bool, ToolError> {
+    Ok(activate_window_report(hwnd)?.active)
+}
+
+/// 前置窗口自愈：最多 3 轮；第 2 轮起先发送 Alt 键（取得"最近输入"资格）
+/// 再调用 `SetForegroundWindow`，绕过 Windows 前台锁。
+pub fn activate_window_report(hwnd: i64) -> Result<ActivationReport, ToolError> {
     let hwnd = handle(hwnd)?;
     if !unsafe { IsWindow(hwnd).as_bool() } {
         return Err(unavailable(hwnd));
     }
     unsafe {
+        // 隐藏窗口（SW_HIDE）同样无法截图/置前：先恢复显示。
+        if !IsWindowVisible(hwnd).as_bool() {
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
         if IsIconic(hwnd).as_bool() {
             let _ = ShowWindow(hwnd, SW_RESTORE);
             std::thread::sleep(std::time::Duration::from_millis(250));
@@ -127,29 +147,56 @@ pub fn activate_window(hwnd: i64) -> Result<bool, ToolError> {
 
         let current_thread = GetCurrentThreadId();
         let target_thread = GetWindowThreadProcessId(hwnd, None);
-        let foreground_thread = GetWindowThreadProcessId(GetForegroundWindow(), None);
 
         // A background process is not allowed to change the foreground window
         // unless it shares an input queue with the current foreground thread.
         // Attaching to both the foreground and the target input queues is the
         // documented workaround.
         let mut attached: Vec<u32> = Vec::new();
-        for thread in [foreground_thread, target_thread] {
-            if thread != 0
-                && thread != current_thread
-                && !attached.contains(&thread)
-                && AttachThreadInput(current_thread, thread, true).as_bool()
-            {
-                attached.push(thread);
-            }
-        }
-
-        let _ = BringWindowToTop(hwnd);
-        let _ = ShowWindow(hwnd, SW_SHOW);
-        let _ = SetActiveWindow(hwnd);
-        let _ = SetForegroundWindow(hwnd);
         let mut active = GetForegroundWindow() == hwnd;
-        if !active {
+        let mut attempts = 0u32;
+        let mut method = if active {
+            "already_foreground"
+        } else {
+            "failed"
+        };
+        for attempt in 1..=3u32 {
+            attempts = attempt;
+            if active {
+                break;
+            }
+            for thread in [
+                GetWindowThreadProcessId(GetForegroundWindow(), None),
+                target_thread,
+            ] {
+                if thread != 0
+                    && thread != current_thread
+                    && !attached.contains(&thread)
+                    && AttachThreadInput(current_thread, thread, true).as_bool()
+                {
+                    attached.push(thread);
+                }
+            }
+            if attempt >= 2 {
+                // Sending a menu key press gives this process the "last input"
+                // status, which lifts the foreground lock for SetForegroundWindow.
+                keybd_event(0x12 /* VK_MENU */, 0, Default::default(), 0);
+                keybd_event(0x12, 0, KEYEVENTF_KEYUP, 0);
+                std::thread::sleep(std::time::Duration::from_millis(30));
+            }
+            let _ = BringWindowToTop(hwnd);
+            let _ = ShowWindow(hwnd, SW_SHOW);
+            let _ = SetActiveWindow(hwnd);
+            let _ = SetForegroundWindow(hwnd);
+            if GetForegroundWindow() == hwnd {
+                active = true;
+                method = if attempt >= 2 {
+                    "alt_unlock"
+                } else {
+                    "set_foreground"
+                };
+                break;
+            }
             let _ = SetWindowPos(
                 hwnd,
                 HWND_TOPMOST,
@@ -170,21 +217,33 @@ pub fn activate_window(hwnd: i64) -> Result<bool, ToolError> {
             );
             let _ = SetForegroundWindow(hwnd);
             std::thread::sleep(std::time::Duration::from_millis(80));
-            active = GetForegroundWindow() == hwnd;
-        }
-        if !active {
+            if GetForegroundWindow() == hwnd {
+                active = true;
+                method = "topmost";
+                break;
+            }
             // Alt-tab equivalent: succeeds where SetForegroundWindow is
             // rejected by the foreground lock.
             SwitchToThisWindow(hwnd, true);
             std::thread::sleep(std::time::Duration::from_millis(120));
-            active = GetForegroundWindow() == hwnd;
+            if GetForegroundWindow() == hwnd {
+                active = true;
+                method = "switch_to_this_window";
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(40));
         }
 
         for thread in attached {
             let _ = AttachThreadInput(current_thread, thread, false);
         }
         std::thread::sleep(std::time::Duration::from_millis(60));
-        Ok(active || GetForegroundWindow() == hwnd)
+        let active = active || GetForegroundWindow() == hwnd;
+        Ok(ActivationReport {
+            active,
+            attempts,
+            method,
+        })
     }
 }
 

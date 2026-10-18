@@ -85,6 +85,16 @@ impl Config {
                 .join(path)
         };
         let path = absolute.canonicalize().unwrap_or(absolute);
+        self.allowed_image_roots()
+            .into_iter()
+            .any(|root| path.starts_with(root.canonicalize().unwrap_or(root)))
+    }
+
+    /// 返回允许读取的图像根目录（doctor 输出与 policy_denied 提示共用）。
+    pub fn allowed_image_roots(&self) -> Vec<PathBuf> {
+        if std::env::var_os("DESKCTL_ALLOW_ANY_INPUT").is_some() {
+            return vec![PathBuf::from("<any: DESKCTL_ALLOW_ANY_INPUT>")];
+        }
         let mut roots = vec![
             self.models_dir.clone(),
             self.output_dir.clone(),
@@ -94,10 +104,7 @@ impl Config {
         if let Ok(root) = std::env::var("DESKCTL_ALLOWED_INPUT_ROOT") {
             roots.push(PathBuf::from(root));
         }
-        roots.into_iter().any(|root| {
-            let root = root.canonicalize().unwrap_or(root);
-            path.starts_with(root)
-        })
+        roots
     }
 }
 

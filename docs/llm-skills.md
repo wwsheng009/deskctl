@@ -257,6 +257,28 @@ desktop_targets_list
   -> desktop_clipboard_write -> 粘贴 -> desktop_clipboard_clean
 ```
 
+### 5.1 老式界面巡检配方（SAP / ERP / 终端监控页）
+
+```text
+1. desktop_targets_list（或用 desktop_windows_list 取 hwnd）
+2. desktop_target_bind {hwnd}                  # 免查 catalog；也可 {app_ref, window_ref}
+3. desktop_semantic_observe {goal:"命令字段 okcode text", target_token}
+4. desktop_semantic_action {locator:{app_id, role:"text_field", ordinal_hint:0}, action:"focus"}
+5. desktop_input {mode:"type", hwnd, text:"/nST06", send:"enter"}   # SAP 只接受真实键入
+6. desktop_window_screenshot {hwnd} -> capture_id                   # 后台抓窗，不抢焦点
+7. desktop_read_kv {capture_id, region:{...数值区}, value_gap:700}  # 标签→数值结构化
+8. desktop_perceive {capture_id}                                    # 需要元素坐标时
+9. desktop_docx_save / desktop_xlsx_save / desktop_pptx_save        # 生成报告（可内嵌 capture）
+10. 读回校验：docx_read / xlsx_read(range) / pptx_read
+```
+
+要点：`capture_id` 读取不受允许图像根限制（无需把截图写进允许目录）；`read_kv` 的
+`ambiguous=true` 表示同行有多个候选值，需人工/LLM 复核；`window_activate` 返回
+`attempts/method` 便于判断是否触发 Alt 解锁兜底。
+
+PowerShell 传参建议：`@{...} | ConvertTo-Json -Depth 10 -Compress | deskctl call <sess> <tool> --stdin`
+（`--stdin` 可避免手工拼接 JSON 时的反斜杠转义错误）。
+
 ## 6. 多会话规则
 
 - 一个 MCP 连接对应一个 session。

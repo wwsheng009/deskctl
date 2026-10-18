@@ -631,6 +631,7 @@ dependencies = [
  "chrono",
  "deskctl-protocol",
  "dirs",
+ "encoding_rs",
  "hex",
  "image",
  "ndarray",

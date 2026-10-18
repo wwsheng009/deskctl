@@ -748,7 +748,7 @@ pub trait SemanticBackend {
 
 | 能力 | 前台要求 | 说明 |
 |---|---|---|
-| 截图、窗口枚举/信息、UIA 观察、OCR/找图找色、`verify_state` | 无 | 纯读取；被遮挡窗口可截图（最小化窗口除外） |
+| 截图、窗口枚举/信息、UIA 观察、OCR/找图找色/键值读取、`verify_state` | 无 | 纯读取；被遮挡窗口可截图（最小化窗口除外）。`desktop_perceive`/`desktop_read_kv` 支持 `capture_id`（会话内截图，不受允许根限制）；UIA 名称的 UTF-8↔GBK 双层编码乱码在读取层自动修复 |
 | 窗口 `move`/`resize` | 无 | `SetWindowPos` 直接操作 |
 | UIA 语义动作（invoke/toggle/set_checked/select/expand/collapse/focus/set_value/scroll/scroll_into_view/set_range_value） | 可选 | `delivery_mode`：`auto`（默认，后台优先、失败回退前台）/`background`（不抢前台）/`foreground`（必须前台）；后台可用性由控件 provider 决定 |
 | 鼠标点击/拖拽 | 可见即可，且需未被遮挡 | 合成输入落在屏幕坐标最上层窗口；携带 `hwnd` 或 capture 引用时强制置前并做遮挡检测（`allow_occluded=true` 跳过） |

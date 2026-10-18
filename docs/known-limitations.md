@@ -39,6 +39,21 @@
 - `desktop_image_crop` 的 `image_path` 输入受允许图像根约束（与 perceive/find_image 一致）；
   使用 `image_path` 的裁剪不会登记新 capture（无屏幕坐标映射），需要链式点击/OCR 时请用
   `capture_id` 作为来源。
+- `desktop_perceive`/`desktop_read_kv` 可用 `capture_id` 直接读取会话内截图/裁剪（不落盘、
+  不受允许图像根限制）；`image_path` 越界时 `policy_denied` 会列出允许根目录与
+  `DESKCTL_ALLOWED_INPUT_ROOT`/`capture_id` 两条出路（`doctor` 输出 `allowed_input_roots`）。
+- `desktop_read_kv` 是几何启发式：按行分组后优先配"同行右侧最近、间距 ≤ `value_gap`"的元素，
+  其次配"正下方水平重叠"的元素；同侧候选多于一个时结果带 `ambiguous=true`（仍取最近者）。
+  表头/多列表格会产生伪配对，建议先用 `region` 收窄到数值区，并按屏幕调整 `value_gap`；
+  数值正确性取决于 OCR 质量（本项目实测 SAP 监控页可读，但小字号数字可能误识）。
+- UIA 名称的双层编码乱码（UTF-8↔GBK）会自动修复，但**末端残字节不可恢复**：例如
+  `鎸夊崌搴忔帓搴?` 修复为 `按升序排`（原文 `按升序排序` 的最后一个字丢失）。
+  正常中文/英文/日文保持原样（有回归用例覆盖）；若 provider 使用其它编码组合仍可能残留。
+- `desktop_window_activate` 最多尝试 3 轮（第 2 轮起先发送 Alt 键取得"最近输入"资格），
+  并在窗口被隐藏时先 `SW_RESTORE`；目标进程主动拒绝置前或前台锁极端场景下仍可能失败，
+  此时按返回的 `attempts`/`method` 诊断改用 `delivery_mode=background` 路径。
+- `desktop_window_screenshot` 对 `xcap` 窗口枚举滞后做了 3 次重试；若窗口被 cloaked
+  （其它虚拟桌面/隐藏）仍会返回 `target_unavailable`，提示先调用 `desktop_window_activate`。
 - 办公文档工具为最简 OOXML 实现：`desktop_docx_save` 支持标题/小节/正文/表格/PNG 图片与
   图注，以及页眉/页脚/页码（`header`/`footer`/`page_numbers`；页码为 PAGE 域占位 1，
   打开时由 Word 更新；`desktop_docx_read` 以 `{PAGE}` 回读该字段；暂不支持样式模板，
@@ -49,7 +64,7 @@
   `desktop_pptx_save` 支持标题/要点/内嵌 PNG 图片与版式选择（auto/title_bullets/title_image/
   text_image/title_only），暂不支持演讲者备注、图表与多图页。
 - `desktop_docx_read`/`desktop_xlsx_read`/`desktop_pptx_read` 的输入路径遵循与图片相同的
-  允许根策略，越界返回 `policy_denied`（错误文案沿用 "image path is outside configured image roots"）。
+  允许根策略，越界返回 `policy_denied`（错误消息含越界路径、允许根列表与两条出路提示）。
 - 自定义截图路径不受沙箱限制，调用方负责路径与覆盖策略。
 - 会话关闭只清理 `%TEMP%` 下的会话截图；默认 `%LOCALAPPDATA%\deskctl\captures`
   视为持久产物，不随会话关闭删除。

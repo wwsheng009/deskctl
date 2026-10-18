@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1.0",
   "profile": "full",
-  "count": 35,
+  "count": 36,
   "tools": [
     {
       "name": "desktop_mouse",
@@ -82,6 +82,10 @@
     {
       "name": "desktop_perceive",
       "file": "desktop_perceive.json"
+    },
+    {
+      "name": "desktop_read_kv",
+      "file": "desktop_read_kv.json"
     },
     {
       "name": "desktop_find_image",

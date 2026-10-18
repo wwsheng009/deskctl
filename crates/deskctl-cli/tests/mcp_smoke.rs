@@ -34,7 +34,7 @@ fn mcp_initialize_list_and_call() {
     assert_eq!(lines[0]["result"]["serverInfo"]["name"], "deskctl");
     assert_eq!(
         lines[1]["result"]["tools"].as_array().expect("tools").len(),
-        33
+        34
     );
     assert_eq!(lines[2]["result"]["isError"], false);
     assert!(

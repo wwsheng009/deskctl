@@ -10,7 +10,7 @@
 |---|---|---|
 | M0 文档冻结 | 完成 | 架构、验收、测试、MCP、skills 文档齐备 |
 | M1 Workspace 与协议骨架 | 完成 | 3 个 crate，统一结果封套，CLI/doctor/schema |
-| M2 Windows 无状态工具 | 完成 | 截图、窗口、鼠标、键盘、剪贴板、找图/找色/找字、等待、图像裁剪、Word/Excel/PPT 读写（页眉页脚/样式/图片版式） |
+| M2 Windows 无状态工具 | 完成 | 截图、窗口、鼠标、键盘、剪贴板、找图/找色/找字、键值读取（read_kv）、等待、图像裁剪、Word/Excel/PPT 读写（页眉页脚/样式/图片版式） |
 | M3 Daemon 与多 session | 完成 | Named Pipe daemon、session 管理、资源门 |
 | M4 MCP 服务 | 完成 | initialize / tools/list / tools/call / prompts |
 | M5 视觉与模型 | 完成 | PaddleOCR 与 YOLO 均已接入并真机验证 |
@@ -84,6 +84,15 @@
   `applyNumberFormat`，sheet1 含 `customWidth`/`state="frozen"`/`A1 s="1"`；2 工作表）、
   pptx 三页含 2 张内嵌 PNG（`images=[1,1,0]`，来源分别为 `capture_id` 与 `image_path`）；
   `desktop_xlsx_read` 的 `range=A2:B3` 精确返回 2 行类型化值；前台窗口全程未变（零抢焦点）
+- 操作体验优化（AC-PER-007/008/009、AC-WIN-008/009、AC-SEM-021/022/023）：真机实测
+  `desktop_perceive {capture_id}` 返回 162 个元素（不落盘、绕开允许根）；`desktop_read_kv`
+  用 `capture_id + region` 在 ST06 屏幕提取 15 组配对（如 `平均进程等待（5分钟）→0.36`、
+  `CPU数量→16`、`用户利用率→2%`），全图模式在旧快照上得到 32 组；
+  `desktop_window_activate` 返回 `attempts/method` 诊断（实测 `attempts=1 method=set_foreground`）
+  并可恢复被隐藏（`visible=false`）的窗口；`desktop_target_bind {hwnd}` 直接绑定成功
+  （自动合成 `app:16432:saplogon.exe`）；UIA 名称乱码修复后同一观察返回
+  `按降序排 / 设置过滤 / 最终用户文 / 查找 / 系统`（此前为 `鎸夐檷搴忔帓搴?` 等）；
+  越界读取的 `policy_denied` 现在内联允许根目录与两条出路
 
 ## 3. 测试状态
 
@@ -91,9 +100,9 @@
 
 ```text
 deskctl-cli:      13 passed（cli_contract 3、mcp_smoke 3、skills_contract 1、tool_contract 6）
-deskctl-core:     33 passed（lib 27、path_policy 2、session_isolation 4）
+deskctl-core:     43 passed（lib 37、path_policy 2、session_isolation 4）
 deskctl-protocol:  3 passed
-合计:             49 passed, 0 failed
+合计:             59 passed, 0 failed
 ```
 
 `cargo fmt --all -- --check` 与 `cargo clippy --workspace --all-targets -- -D warnings` 均无告警
@@ -101,8 +110,8 @@ deskctl-protocol:  3 passed
 
 覆盖：
 
-- 35 工具 Schema 合法性
-- 33/35 profile 工具数量
+- 36 工具 Schema 合法性
+- 34/36 profile 工具数量
 - readonly 不暴露输入工具
 - 无 approve/reject/approval 工具
 - skills manifest 与工具名一致性

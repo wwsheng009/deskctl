@@ -26,8 +26,8 @@
 
 ### AC-SCOPE-002 工具范围
 
-- 默认 `standard` profile 暴露 33 个核心工具。
-- `full` profile 暴露 35 个工具。
+- 默认 `standard` profile 暴露 34 个核心工具。
+- `full` profile 暴露 36 个工具。
 - 只有 `desktop_*`，不出现 `browser_*`、`workflow_*`、`agent_*` 工具。
 - `desktop_vision` 和 `desktop_agent_step` 仅在对应可选功能启用时出现。
 
@@ -65,6 +65,8 @@
 | AC-WIN-005 | 无效句柄 | 返回 `target_unavailable` 或等价结构化错误 |
 | AC-WIN-006 | 多窗口选择 | 同名窗口不被错误猜测，必须显式选择 |
 | AC-WIN-007 | 对话框跟随绑定 | `target_bind follow_dialog=true` 时，若目标窗口被模态弹窗禁用则绑定该弹窗，响应 `followed_dialog=true` 与 `parent_hwnd`；多窗口场景优先选择活动弹窗 |
+| AC-WIN-008 | 激活自愈 | `desktop_window_activate` 内部最多 3 轮置前（第 2 轮起先发送 Alt 键解锁前台锁），隐藏窗口先恢复显示；响应返回 `attempts` 与 `method`，失败错误同样附带该诊断 |
+| AC-WIN-009 | 截图枚举重试 | `desktop_window_screenshot` 对窗口枚举滞后自动重试 3 次；仍不可枚举时提示 "call desktop_window_activate first" |
 
 ### 3.3 鼠标
 
@@ -128,6 +130,9 @@
 | AC-PER-001 | OCR | 已知截图返回文字和坐标块 |
 | AC-PER-002 | YOLO | 已知图标截图返回元素框；模型缺失时按配置降级或报错 |
 | AC-PER-003 | 合并结果 | OCR/YOLO 结果去重、合并，元素 ID 稳定 |
+| AC-PER-007 | capture_id 输入 | `desktop_perceive` 接受 `capture_id`（与 `image_path` 互斥）；会话内截图/裁剪可直接识别，不受允许图像根限制 |
+| AC-PER-008 | 键值读取 | `desktop_read_kv` 按行分组并把标签与右侧（或正下方）取值配对，返回 `pairs`（含 `label/value/rect/row/ambiguous`）与 `unpaired`；支持 `region`/`value_gap`/`row_tolerance`/`min_confidence`/`max_pairs`；`capture_id` 与 `image_path` 二选一 |
+| AC-PER-009 | 越界提示 | 读取图像越界时 `policy_denied` 消息列出允许根目录、`DESKCTL_ALLOWED_INPUT_ROOT` 与 `capture_id` 三条出路；`doctor` 输出 `allowed_input_roots` |
 | AC-PER-004 | capture 映射 | 已登记截图返回 `screen_center` 和 `capture_id` |
 | AC-PER-005 | 未登记截图 | 未登记图片返回图像坐标，`screen_center=null` |
 | AC-PER-006 | 模型校验 | 模型缺失/损坏时 `doctor` 和工具错误信息一致 |
@@ -156,6 +161,9 @@
 | AC-SEM-018 | 投递模式 | 语义动作 `delivery_mode` 默认 `auto`：优先后台执行、必要时回退前台且不重复派发；`background` 不抢前台，失败即返回结构化错误；`foreground` 仍可显式要求 |
 | AC-SEM-019 | 前台还原 | `restore_foreground=true` 时语义动作结束后尽力还原动作前的前台窗口，结果字段如实返回（受前台锁影响允许失败） |
 | AC-SEM-020 | 对话框自动跟随 | `semantic_observe`/`semantic_action` 在目标窗口被模态弹窗禁用时自动跟随其活动弹窗（响应报告 `redirected_from`），弹窗关闭后自动恢复原目标 |
+| AC-SEM-021 | 按 hwnd 绑定 | `target_bind` 支持 `hwnd`（与 `app_ref`/`window_ref` 互斥），无需先查 `targets_list`；响应与绑定记录自动合成 `app:<pid>:<process>` |
+| AC-SEM-022 | 绑定失败提示 | `app_ref` 无匹配时报错含正确格式示例与 `targets_list`/`hwnd` 两条出路；`app_ref` 命中多窗口时报错内联列出候选 `window_ref` |
+| AC-SEM-023 | UIA 名称修复 | UIA 名称/描述的双层编码乱码（UTF-8↔GBK 两个方向）自动修复；正常中文/英文/日文恒等；末端残字节允许丢失（结果保留可读前缀） |
 | AC-MOUSE-011 | 遮挡保护 | 携带 `hwnd`/capture 引用的点击在目标点被其它进程窗口遮挡时返回 `target_unavailable` + `occluded_by`，不误点；`allow_occluded=true` 可强制 |
 
 ### 3.9 图像处理与文档

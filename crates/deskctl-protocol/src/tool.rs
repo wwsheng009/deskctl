@@ -67,6 +67,7 @@ pub enum ToolName {
     PptxSave,
     Vision,
     Perceive,
+    ReadKv,
     FindImage,
     FindColor,
     FindMultiColor,
@@ -97,7 +98,7 @@ pub struct ToolMeta {
 }
 
 impl ToolName {
-    pub const ALL: [ToolName; 35] = [
+    pub const ALL: [ToolName; 36] = [
         Self::Mouse,
         Self::MouseDrag,
         Self::Input,
@@ -118,6 +119,7 @@ impl ToolName {
         Self::PptxSave,
         Self::Vision,
         Self::Perceive,
+        Self::ReadKv,
         Self::FindImage,
         Self::FindColor,
         Self::FindMultiColor,
@@ -301,6 +303,14 @@ impl ToolName {
                 false,
                 false,
             ),
+            Self::ReadKv => meta(
+                "desktop_read_kv",
+                "Pair OCR labels with their adjacent values (right side or below) on a capture or image and return structured key-value data.",
+                RiskClass::ReadOnly,
+                true,
+                false,
+                false,
+            ),
             Self::FindImage => meta(
                 "desktop_find_image",
                 "Find a template image on screen.",
@@ -455,6 +465,7 @@ impl ToolName {
                             | Self::PptxSave
                             | Self::Vision
                             | Self::Perceive
+                            | Self::ReadKv
                             | Self::FindImage
                             | Self::FindColor
                             | Self::FindMultiColor

@@ -5,12 +5,15 @@
     "type": "object",
     "properties": {
       "image_path": {
-        "type": "string"
+        "type": "string",
+        "description": "Path inside an allowed image root"
+      },
+      "capture_id": {
+        "type": "string",
+        "description": "Session capture (screenshot/crop) to read; bypasses the image-root policy"
       }
     },
-    "required": [
-      "image_path"
-    ],
+    "required": [],
     "additionalProperties": false
   },
   "annotations": {

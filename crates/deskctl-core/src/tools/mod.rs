@@ -108,6 +108,7 @@ pub async fn execute(
         ToolName::FindText => find_text(engine, args),
         ToolName::WaitFor => wait_for(args, cancel).await,
         ToolName::Perceive => perceive(engine, session, args),
+        ToolName::ReadKv => read_kv(engine, session, args),
         ToolName::Vision => Err(ToolError::new(
             ErrorCode::ModelUnavailable,
             "desktop_vision requires an external vision provider; none is configured",
@@ -161,16 +162,28 @@ fn screenshot(
 
 fn window_activate(args: &Value) -> Result<ToolExecution, ToolError> {
     let hwnd = required_i64(args, "hwnd")?;
-    let foreground = platform::activate_window(hwnd)?;
-    if !foreground {
+    let report = platform::activate_window_report(hwnd)?;
+    if !report.active {
         return Err(ToolError::new(
             ErrorCode::TargetUnavailable,
-            "window could not be brought to the foreground",
+            format!(
+                "window could not be brought to the foreground after {} attempts",
+                report.attempts
+            ),
         )
+        .details(json!({
+            "attempts": report.attempts,
+            "method": report.method
+        }))
         .retryable(true));
     }
     Ok(ToolExecution::verified(
-        json!({ "hwnd": hwnd, "foreground": true }),
+        json!({
+            "hwnd": hwnd,
+            "foreground": true,
+            "attempts": report.attempts,
+            "method": report.method
+        }),
         DispatchState::Sent,
     ))
 }
@@ -868,9 +881,45 @@ async fn wait_for(args: &Value, cancel: &CancelFlag) -> Result<ToolExecution, To
     }
 }
 
-fn perceive(engine: &Engine, session: &Session, args: &Value) -> Result<ToolExecution, ToolError> {
-    let path = required_str(args, "image_path")?;
-    let path = normalize_image_path(engine, path)?;
+/// 解析图像来源（capture_id 优先、或允许根内的 image_path），返回
+/// （路径、capture_id、屏幕原点、像素图）。
+fn load_tool_image(
+    engine: &Engine,
+    session: &Session,
+    args: &Value,
+) -> Result<
+    (
+        std::path::PathBuf,
+        Option<String>,
+        Option<ScreenRect>,
+        image::RgbaImage,
+    ),
+    ToolError,
+> {
+    let capture_arg = args.get("capture_id").and_then(Value::as_str);
+    let image_arg = args.get("image_path").and_then(Value::as_str);
+    let (path, existing_id, screen_rect) = match (capture_arg, image_arg) {
+        (Some(_), Some(_)) => {
+            return Err(invalid("capture_id and image_path are mutually exclusive"))
+        }
+        (None, None) => return Err(invalid("image_path or capture_id is required")),
+        (Some(id), None) => {
+            let capture = session.capture(id)?;
+            let rect = capture.screen_rect;
+            (
+                std::path::PathBuf::from(&capture.path),
+                Some(id.to_string()),
+                Some(rect),
+            )
+        }
+        (None, Some(raw)) => {
+            let path = normalize_image_path(engine, raw)?;
+            let existing = session.find_capture_by_path(&path.to_string_lossy());
+            let rect = existing.as_ref().map(|capture| capture.screen_rect);
+            let id = existing.as_ref().map(|capture| capture.id.clone());
+            (path, id, rect)
+        }
+    };
     let image = image::open(&path)
         .map_err(|error| {
             ToolError::new(
@@ -879,8 +928,11 @@ fn perceive(engine: &Engine, session: &Session, args: &Value) -> Result<ToolExec
             )
         })?
         .to_rgba8();
-    let existing_capture = session.find_capture_by_path(&path.to_string_lossy());
-    let screen_rect = existing_capture.as_ref().map(|capture| capture.screen_rect);
+    Ok((path, existing_id, screen_rect, image))
+}
+
+fn perceive(engine: &Engine, session: &Session, args: &Value) -> Result<ToolExecution, ToolError> {
+    let (path, capture_id, screen_rect, image) = load_tool_image(engine, session, args)?;
     let mut elements = engine.vision().perceive(&image, screen_rect)?;
     elements.sort_by(|left, right| {
         left.rect
@@ -888,7 +940,6 @@ fn perceive(engine: &Engine, session: &Session, args: &Value) -> Result<ToolExec
             .cmp(&right.rect.y)
             .then(left.rect.x.cmp(&right.rect.x))
     });
-    let capture_id = existing_capture.as_ref().map(|capture| capture.id.clone());
     let mut locations = std::collections::BTreeMap::new();
     let mut public = Vec::with_capacity(elements.len());
     for (index, element) in elements.into_iter().enumerate() {
@@ -934,6 +985,112 @@ fn perceive(engine: &Engine, session: &Session, args: &Value) -> Result<ToolExec
         "image_path": path.display().to_string(),
         "elements": public,
         "count": public.len()
+    })))
+}
+
+/// 把图像上的 OCR 文本按"标签 → 数值"配对（同行右侧优先，其次正下方），
+/// 用于把老式表单/监控界面读成结构化键值数据（SAP/ERP/终端等）。
+fn read_kv(engine: &Engine, session: &Session, args: &Value) -> Result<ToolExecution, ToolError> {
+    let (path, capture_id, _screen_rect, image) = load_tool_image(engine, session, args)?;
+    let region = optional_region(args);
+    let (image, offset) = match region {
+        Some(rect) => {
+            if rect.width == 0
+                || rect.height == 0
+                || rect.x < 0
+                || rect.y < 0
+                || i64::from(rect.x) + i64::from(rect.width) > i64::from(image.width())
+                || i64::from(rect.y) + i64::from(rect.height) > i64::from(image.height())
+            {
+                return Err(invalid(format!(
+                    "region is outside the image ({}x{})",
+                    image.width(),
+                    image.height()
+                )));
+            }
+            (
+                image::imageops::crop_imm(
+                    &image,
+                    rect.x as u32,
+                    rect.y as u32,
+                    rect.width,
+                    rect.height,
+                )
+                .to_image(),
+                (rect.x, rect.y),
+            )
+        }
+        None => (image, (0, 0)),
+    };
+    let elements = engine.vision().perceive(&image, None)?;
+    let kv_elements: Vec<crate::kv::KvElement> = elements
+        .iter()
+        .map(|element| crate::kv::KvElement {
+            text: element.text.clone(),
+            x: element.rect.x + offset.0,
+            y: element.rect.y + offset.1,
+            width: element.rect.width,
+            height: element.rect.height,
+            confidence: element.confidence,
+        })
+        .collect();
+    let options = crate::kv::KvOptions {
+        value_gap: args
+            .get("value_gap")
+            .and_then(Value::as_i64)
+            .unwrap_or(600)
+            .clamp(8, 4000) as i32,
+        row_tolerance: args
+            .get("row_tolerance")
+            .and_then(Value::as_i64)
+            .unwrap_or(0)
+            .clamp(0, 200) as i32,
+        min_confidence: args
+            .get("min_confidence")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.3)
+            .clamp(0.0, 1.0) as f32,
+        max_pairs: args
+            .get("max_pairs")
+            .and_then(Value::as_u64)
+            .unwrap_or(500)
+            .clamp(1, 2000) as usize,
+    };
+    let (pairs, unpaired) = crate::kv::pair_key_values(&kv_elements, &options);
+    let pairs_json: Vec<Value> = pairs
+        .iter()
+        .map(|pair| {
+            json!({
+                "label": pair.label.text,
+                "value": pair.value.text,
+                "label_rect": { "x": pair.label.x, "y": pair.label.y, "width": pair.label.width, "height": pair.label.height },
+                "value_rect": { "x": pair.value.x, "y": pair.value.y, "width": pair.value.width, "height": pair.value.height },
+                "row": pair.row,
+                "ambiguous": pair.ambiguous
+            })
+        })
+        .collect();
+    let unpaired_json: Vec<Value> = unpaired
+        .iter()
+        .map(|element| {
+            json!({
+                "text": element.text,
+                "rect": { "x": element.x, "y": element.y, "width": element.width, "height": element.height },
+                "confidence": element.confidence
+            })
+        })
+        .collect();
+    Ok(ToolExecution::read(json!({
+        "image_path": path.display().to_string(),
+        "capture_id": capture_id,
+        "region": region.map(|rect| json!({
+            "x": rect.x, "y": rect.y, "width": rect.width, "height": rect.height
+        })),
+        "pairs": pairs_json,
+        "unpaired": unpaired_json,
+        "pair_count": pairs_json.len(),
+        "unpaired_count": unpaired_json.len(),
+        "engine": "paddle_ocr"
     })))
 }
 
@@ -1440,8 +1597,18 @@ fn targets_list(args: &Value) -> Result<ToolExecution, ToolError> {
 }
 
 fn target_bind(session: &Session, args: &Value) -> Result<ToolExecution, ToolError> {
-    let app_ref = required_str(args, "app_ref")?;
+    let hwnd_arg = args.get("hwnd").and_then(Value::as_i64);
+    let app_ref_arg = args.get("app_ref").and_then(Value::as_str);
     let window_ref = args.get("window_ref").and_then(Value::as_str);
+    if hwnd_arg.is_none() && app_ref_arg.is_none() {
+        return Err(invalid("target_bind requires hwnd, app_ref or window_ref"));
+    }
+    if hwnd_arg.is_some() && (app_ref_arg.is_some() || window_ref.is_some()) {
+        return Err(invalid(
+            "hwnd is mutually exclusive with app_ref/window_ref",
+        ));
+    }
+    let app_ref = app_ref_arg.unwrap_or_default().to_string();
     let delivery_mode = args
         .get("delivery_mode")
         .and_then(Value::as_str)
@@ -1457,19 +1624,26 @@ fn target_bind(session: &Session, args: &Value) -> Result<ToolExecution, ToolErr
         .and_then(Value::as_bool)
         .unwrap_or(false);
     let mut picked_dialog_parent: Option<i64> = None;
-    let selected = if let Some(entry) = crate::apps::find(app_ref) {
+    let selected = if let Some(hwnd) = hwnd_arg {
+        // 直接按 hwnd 绑定：无需先查 catalog / targets_list。
+        platform::window_info(hwnd)?
+    } else if let Some(entry) = crate::apps::find(&app_ref) {
         // 本地应用目录引用：运行中则绑定窗口，未运行则受限启动后绑定。
         resolve_catalog_target(entry, window_ref, &mut launched_pid)?
     } else {
-        let (pid, app_name) = parse_app_ref(app_ref)?;
+        let (pid, app_name) = parse_app_ref(&app_ref)?;
         let windows = platform::windows_list()?;
         let matching: Vec<Value> = windows
             .into_iter()
             .filter(|window| {
                 window["process_id"].as_u64() == Some(u64::from(pid))
-                    && window["process_name"]
-                        .as_str()
-                        .is_some_and(|name| sanitize_ref(name) == app_name)
+                    && window["process_name"].as_str().is_some_and(|name| {
+                        let sanitized = sanitize_ref(name);
+                        sanitized == app_name
+                            || sanitized
+                                .strip_suffix(".exe")
+                                .is_some_and(|stem| stem == app_name)
+                    })
             })
             .collect();
         if let Some(window_ref) = window_ref {
@@ -1504,14 +1678,26 @@ fn target_bind(session: &Session, args: &Value) -> Result<ToolExecution, ToolErr
                     [] => {
                         return Err(ToolError::new(
                             ErrorCode::TargetUnavailable,
-                            "no running window matches app_ref; use an app_ref from the local app catalog to launch it",
+                            format!(
+                                "no running window matches app_ref '{app_ref}' (expected app:<pid>:<process>, e.g. app:1234:saplogon.exe); use desktop_targets_list for current refs or pass hwnd directly"
+                            ),
                         )
                         .retryable(true))
                     }
                     _ => {
+                        let refs: Vec<String> = matching
+                            .iter()
+                            .map(|window| {
+                                format!("win:{}", window["hwnd"].as_i64().unwrap_or_default())
+                            })
+                            .collect();
                         return Err(ToolError::new(
                             ErrorCode::TargetUnavailable,
-                            "app_ref has multiple windows; select one explicitly with window_ref",
+                            format!(
+                                "app_ref matches {} windows ({}); pass window_ref or hwnd",
+                                refs.len(),
+                                refs.join(", ")
+                            ),
                         )
                         .details(json!({
                             "windows": matching.iter().map(|window| json!({
@@ -1553,10 +1739,19 @@ fn target_bind(session: &Session, args: &Value) -> Result<ToolExecution, ToolErr
         )
         .retryable(true));
     }
+    let app_ref = if app_ref.is_empty() {
+        // hwnd 模式：用窗口信息合成一个稳定的 app_ref，便于后续响应/记录引用。
+        let info = platform::window_info(hwnd)?;
+        let pid = info["process_id"].as_u64().unwrap_or_default();
+        let name = info["process_name"].as_str().unwrap_or("unknown");
+        format!("app:{pid}:{}", sanitize_ref(name))
+    } else {
+        app_ref
+    };
     let token = format!("target-{}", Uuid::new_v4().simple());
     session.store_target(TargetBinding {
         token: token.clone(),
-        app_ref: app_ref.to_string(),
+        app_ref: app_ref.clone(),
         window_ref: window_ref.map(str::to_string),
         hwnd,
         title: title.clone(),
@@ -1841,9 +2036,19 @@ fn normalize_image_path(engine: &Engine, value: &str) -> Result<std::path::PathB
         std::env::current_dir()?.join(path)
     };
     if !engine.config().is_allowed_image_path(&absolute) {
+        let roots: Vec<String> = engine
+            .config()
+            .allowed_image_roots()
+            .into_iter()
+            .map(|root| root.display().to_string())
+            .collect();
         return Err(ToolError::new(
             ErrorCode::PolicyDenied,
-            "image path is outside configured image roots",
+            format!(
+                "image path '{}' is outside configured image roots ({}); move the file into one of these roots, set DESKCTL_ALLOWED_INPUT_ROOT, or pass capture_id when the image came from a deskctl capture",
+                absolute.display(),
+                roots.join(", ")
+            ),
         )
         .retryable(false));
     }

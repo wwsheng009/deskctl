@@ -495,7 +495,11 @@ fn bool_or(
 
 fn text(value: Option<BSTR>) -> Option<String> {
     value
-        .map(|value| truncate(&value.to_string(), 256))
+        .map(|value| {
+            // 部分 provider（如 SAP GUI）返回 UTF-8 被按 GBK 解码的乱码名称。
+            let repaired = crate::text_util::repair_cjk_mojibake(&value.to_string());
+            truncate(&repaired, 256)
+        })
         .filter(|value| !value.trim().is_empty())
 }
 

@@ -75,17 +75,36 @@ pub fn capture_window(hwnd: i64) -> Result<CapturedImage, ToolError> {
         isize::try_from(hwnd).map_err(|_| invalid("hwnd is outside the platform handle range"))?;
     let before = crate::platform::windows::window::window_info(hwnd)?;
     let before_rect = rect_from_info(&before)?;
-    let window = Window::all()
-        .map_err(|e| capture_error(e.to_string()))?
-        .into_iter()
-        .find(|window| window.id().is_ok_and(|id| id as isize == hwnd_raw))
-        .ok_or_else(|| {
-            ToolError::new(
-                ErrorCode::TargetUnavailable,
-                format!("window {hwnd} is unavailable"),
-            )
-            .retryable(true)
-        })?;
+    // 窗口枚举偶发滞后（刚激活/刚显示时可能查不到），重试几次再报错。
+    let mut found = None;
+    let mut last_problem = String::from("window list is empty");
+    for attempt in 0..3 {
+        match Window::all() {
+            Ok(windows) => {
+                if let Some(window) = windows
+                    .into_iter()
+                    .find(|window| window.id().is_ok_and(|id| id as isize == hwnd_raw))
+                {
+                    found = Some(window);
+                    break;
+                }
+                last_problem = format!("window {hwnd} is not enumerable for capture yet");
+            }
+            Err(error) => last_problem = error.to_string(),
+        }
+        if attempt < 2 {
+            std::thread::sleep(std::time::Duration::from_millis(150));
+        }
+    }
+    let window = found.ok_or_else(|| {
+        ToolError::new(
+            ErrorCode::TargetUnavailable,
+            format!(
+                "{last_problem} (window may be hidden, cloaked or minimized; call desktop_window_activate first)"
+            ),
+        )
+        .retryable(true)
+    })?;
     let image = window
         .capture_image()
         .map_err(|e| capture_error(e.to_string()))?;

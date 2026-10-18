@@ -21,8 +21,8 @@ mod imp {
         observe_window, perform_action, ActionOptions, UiNode, UiaAction,
     };
     pub use super::windows::window::{
-        activate_window, active_input_window, find_window_by_title, move_window, resize_window,
-        window_at_point, window_info, windows_list,
+        activate_window, activate_window_report, active_input_window, find_window_by_title,
+        move_window, resize_window, window_at_point, window_info, windows_list, ActivationReport,
     };
 }
 
@@ -90,6 +90,15 @@ mod imp {
         Err(unsupported())
     }
     pub fn activate_window(_hwnd: i64) -> Result<bool, ToolError> {
+        Err(unsupported())
+    }
+    #[derive(Debug, Clone, Copy)]
+    pub struct ActivationReport {
+        pub active: bool,
+        pub attempts: u32,
+        pub method: &'static str,
+    }
+    pub fn activate_window_report(_hwnd: i64) -> Result<ActivationReport, ToolError> {
         Err(unsupported())
     }
     pub fn move_window(_hwnd: i64, _x: i32, _y: i32) -> Result<(), ToolError> {
