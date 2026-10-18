@@ -381,6 +381,7 @@ Windows 首个可用版本必须同时满足：
 | AC-RPL-009 | 运行结果 | run-level `outcome` 分类正确（`VERIFIED`/`HALTED_BEFORE_EFFECT`/`RECONCILIATION_REQUIRED`/`COMPLETED_UNVERIFIED`/`REJECTED_POLICY`） |
 | AC-RPL-010 | 受限表达式（L2，可选） | `when`/`repeat` 生效；表达式无副作用（不能调用工具）；表达式越界/类型错误在预检被拒（见 [design/adr-001-script-engine.md](design/adr-001-script-engine.md)） |
 | AC-RPL-011 | 引擎沙箱（L3，仅启用时） | `max_operations` 超限被中止且不计成功；未注册任何文件/网络/时间能力；`call()` 调用出现在审计中且与展开序列一致 |
+| AC-RPL-012 | 引擎运行可追溯（L3，仅启用时） | 每次 Rhai run 产出 `expanded.jsonl`，与审计逐条一致（`run_id`/`step_index`）；Generator 模式产物为合法 `deskctl-script/1` 且可被 L1 校验/执行；同脚本 + 录制 transcript 的两次运行展开序列一致（确定性） |
 
 ### 15.4 检查点与补偿（D4，P2）
 

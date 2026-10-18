@@ -69,6 +69,7 @@ CLI/MCP ──► deskctl history      （P0：直读 audit JSONL，过滤/聚�
 | 检查点与补偿 | [checkpoint-transaction.md](checkpoint-transaction.md) | P2 | `desktop_checkpoint_save/verify`、补偿脚本约定 |
 | 先例调研（GitHub） | [prior-art.md](prior-art.md) | 评审输入 | 同类项目清单、机制对照、7 条修订建议（R1–R7） |
 | 脚本执行层选型（ADR） | [adr-001-script-engine.md](adr-001-script-engine.md) | D3 前置决策 | 自研声明式 JSON（默认）+ L2 受限表达式 + L3 Rhai（opt-in）；不选 wasm/V8/停维护方案 |
+| Rhai 集成架构（深化，L3） | [rhai-integration.md](rhai-integration.md) | L3 前置设计 | 同步桥接执行模型、宿主 API、限额默认值、审计追溯、威胁模型、R0–R3 落地 |
 
 ## 4. 里程碑与门禁
 

@@ -5,6 +5,9 @@
 - 状态：Proposed（待评审）
 - 关联：[record-replay.md](record-replay.md)、[data-formats.md](data-formats.md)、[prior-art.md](prior-art.md)、[README.md](README.md)
 
+> **深化设计**：[rhai-integration.md](rhai-integration.md)（执行模型/宿主 API/限额默认值/审计与追溯/威胁模型/落地阶段）。
+> 该文修正了本 ADR 的一处事实错误：Rhai 1.26 **没有 async feature**，架构采用"脚本线程同步 + 工具调用异步"的桥接方案。
+
 ## 1. 问题
 
 回放脚本如何执行：
@@ -47,7 +50,7 @@
 |---|---|---|---|---|---|---|---|
 | **自研 JSON 解释器** | Rust | 零新增 | 完全可控（仅白名单语义） | 原生 tokio | 本项目 | ~0 | ★★★★★（默认） |
 | **evalexpr** | Rust（表达式） | 纯 Rust，极轻 | 无 IO；无控制流 | 同步（够用） | 416★ / 11.0M / 2026-10 | 极小 | ★★★★（L2 首选） |
-| **Rhai** | Rust（脚本） | 纯 Rust，7 个轻量依赖 | **强**：`max_operations`、`max_call_stack`、`max_string_size`、进度钩子可中止、可禁用循环/关键字、默认无 IO | 有 `async` feature（tokio 兼容） | **5,739★ / 13.1M / 2026-10-17**；MIT OR Apache-2.0；MSRV 1.66 | 小（单二进制内） | ★★★★★（L3 首选） |
+| **Rhai** | Rust（脚本） | 纯 Rust，7 个轻量依赖 | **强**：`set_max_operations`、`set_max_call_levels`、`set_max_string_size`、`on_progress` 可强制终止、`no_module/no_time` 编译期裁剪、默认无 IO | **无 async feature**（1.26.1 features 表实测）→ 采用同步桥接，见 [rhai-integration.md §3](rhai-integration.md) | **5,739★ / 13.1M / 2026-10-17**；MIT OR Apache-2.0；MSRV 1.66 | 小（单二进制内，实测目标 ≤ +2 MiB） | ★★★★★（L3 首选） |
 | **mlua（Lua）** | C（vendored Lua/LuaJIT） | 需 C 工具链（lua-src）；或系统 Lua | 可移除 stdlib/IO；限额需自行加指令钩子 | 原生 async/await | 2,908★ / 7.9M / 2026-10-03 | 小 | ★★★★（生态最好，构建复杂化） |
 | **rquickjs（QuickJS）** | C（QuickJS） | 需 C 工具链 | 支持中断处理器与内存上限 | 一般（非 async-first） | 1,040★ / 5.5M / 2026-10-17 | 小 | ★★★（要 JS 兼容时） |
 | **Rune** | Rust | 纯 Rust | VM 限额有，文档/生态较小 | 内建 async | 2,339★ / **0.18M** / 2026-10-11 | 小 | ★★（观望） |
