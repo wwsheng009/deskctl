@@ -19,6 +19,7 @@
 | [capture-compression.md](capture-compression.md) | 截图格式、压缩、缩放与字节上限策略 |
 | [known-limitations.md](known-limitations.md) | 已知限制与发布前注意事项 |
 | [performance-baseline.md](performance-baseline.md) | 性能基线、本机实测结果与复现方法 |
+| [release-checklist.md](release-checklist.md) | 发布门禁逐项对照、证据与剩余外部工作 |
 | [mcp-service.md](mcp-service.md) | MCP server、tools、prompts、取消、进度、错误映射 |
 | [llm-skills.md](llm-skills.md) | LLM Skill 定义、工具选择、失败恢复、评估 |
 | [extensibility.md](extensibility.md) | 新工具/平台/传输/provider/skill 的扩展机制 |
@@ -44,6 +45,7 @@
 | 可扩展性 | extensibility | 已覆盖 |
 | 安全边界 | architecture、acceptance、test-plan | 已覆盖 |
 | 发布/安装包 | architecture、acceptance、test-plan | 已覆盖 |
+| 发布门禁对照 | release-checklist、acceptance-criteria、implementation-status | 已覆盖 |
 
 ## 尚未完成的部分
 
