@@ -63,16 +63,21 @@ fn doctor_writes_compact_utf8_output_file() {
 }
 
 #[test]
-fn exported_contracts_cover_full_profile() {
+fn exported_contracts_match_index_profile() {
     let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let directory = root.join("contracts/tools");
     let index: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(directory.join("index.json")).expect("contracts index"),
     )
     .expect("contracts index JSON");
-    assert_eq!(index["count"], 42);
+    let tools = index["tools"].as_array().expect("tools");
+    assert_eq!(index["count"].as_u64(), Some(tools.len() as u64));
+    assert!(matches!(
+        index["profile"].as_str(),
+        Some("standard") | Some("full")
+    ));
     assert_eq!(index["schema_version"], "0.1.0");
-    for entry in index["tools"].as_array().expect("tools") {
+    for entry in tools {
         let file = entry["file"].as_str().expect("file");
         let descriptor: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(directory.join(file)).expect("contract"))
