@@ -350,7 +350,7 @@ Windows 首个可用版本必须同时满足：
 > 实现并通过验证（见 §15.2）；D3（录制与回放）已于 2026-10-19 实现并通过验证（见 §15.3，真机
 > SAP ST06 E2E-012 待回归）；D4（检查点与补偿）已于 2026-10-19 实现并通过验证（见 §15.4，
 > 真机 GUI 差异样本待回归）；I1（输入模拟增强）已于 2026-10-19 实施（见 §15.6）；
-> AC-SEC-013（§15.5）仍为规划中。
+> AC-SEC-013（§15.5）已于 2026-10-19 实施并通过验证。
 
 ### 15.1 审计与历史（D1，P0，已实施 2026-10-19）
 
@@ -425,7 +425,13 @@ Windows 首个可用版本必须同时满足：
 | AC-TXN-002 | 差异校验 | `checkpoint_verify` 返回 `matched/diffs`（值/布尔/存在/矩形四类至少各一例） |
 | AC-TXN-003 | 补偿脚本 | `purpose=compensation` 默认 dry-run；`apply=true` 才执行；二次失败立即停止 |
 
-### 15.5 屏幕文本注入防御（独立小改动）
+### 15.5 屏幕文本注入防御（独立小改动，已实施 2026-10-19）
+
+> 已完成验证（AC-SEC-013）：证据见 [implementation-status.md](implementation-status.md) §1 的 S1 行与
+> §2 已验证能力；判据测试在 `crates/deskctl-cli/tests/untrusted_wrap.rs`（history 默认包裹 /
+> `DESKCTL_UNTRUSTED_WRAP=off` 恢复原文）与 `crates/deskctl-core/src/untrusted.rs` 单测（开关解析、
+> 递归包裹）；工具描述已声明"数据非指令"。未包裹面（UIA/语义候选文本、写入参数污染路径 R-08）
+> 见 [known-limitations.md](known-limitations.md)。
 
 | 编号 | 验收项 | 通过标准 |
 |---|---|---|

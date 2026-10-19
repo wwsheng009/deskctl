@@ -338,6 +338,15 @@ run report `relaunched=true`；执行中关闭窗口 → 单步自动重绑（�
 `purpose=compensation` 未显式给 `dry_run` 时为 dry-run，显式 `dry_run=false` 才执行
 （契约测试 `crates/deskctl-cli/tests/checkpoint_contract.rs`）。
 
+### 7.9 屏幕文本注入防御（S1）
+
+**AC-SEC-013 不可信内容包裹**：`desktop_perceive`/`desktop_read_kv`/`desktop_find_text` 返回的
+OCR 文本（`elements[].text`、`pairs[].label/value`、`unpaired[].text`、`matches[].word`）以
+`<untrusted-screen-content>…</untrusted-screen-content>` 包裹；`deskctl history --json` 把记录的
+`error.message` 与 `error.details` 内字符串递归包裹（窗口标题等），其余字段与 JSON 结构原样；
+`DESKCTL_UNTRUSTED_WRAP=off`（或 `0`/`false`/`no`/`disabled`）后两类输出恢复原文、不出现标记
+（契约测试 `crates/deskctl-cli/tests/untrusted_wrap.rs`、单测 `untrusted.rs`）。
+
 ## 8. 端到端场景
 
 ### E2E-001 截图点击

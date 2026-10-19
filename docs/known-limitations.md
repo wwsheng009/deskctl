@@ -118,4 +118,10 @@
   且不再触发二级补偿（自身失败只记录在 report 的 `compensation.error`，不改变主运行结果）；
   补偿脚本的 `path` 输入与检查点导出共用允许图像根策略（`DESKCTL_ALLOW_ANY_INPUT`/
   `DESKCTL_ALLOWED_INPUT_ROOT` 可放开）。
+- 屏幕文本注入防御（S1/AC-SEC-013）限制：当前只包裹 OCR/vision 输出
+  （`desktop_perceive`/`desktop_read_kv`/`desktop_find_text`）与 `history --json` 记录中
+  `error.message`/`error.details` 的字符串；UIA/语义候选文本（`desktop_semantic_*`）与
+  `desktop_find_image` 等其它输出暂未包裹。包裹是"声明数据非指令"的软防御，不改变工具语义，
+  也不能阻止 agent 主动把屏幕文本拼进后续写入参数（R-08 的 `tainted`/`allow_untrusted`
+  策略仍未实现）。
 

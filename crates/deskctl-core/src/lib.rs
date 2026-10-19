@@ -19,6 +19,7 @@ pub mod script;
 pub mod session;
 pub mod text_util;
 pub mod tools;
+pub mod untrusted;
 pub mod vision;
 pub mod xlsx;
 

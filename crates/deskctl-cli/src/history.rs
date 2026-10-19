@@ -10,6 +10,7 @@ use std::path::PathBuf;
 
 use chrono::{DateTime, Duration, Local, NaiveTime};
 use deskctl_core::audit::{AuditConfig, AuditMode};
+use deskctl_core::untrusted;
 use serde_json::{json, Value};
 
 pub struct HistoryOptions {
@@ -81,7 +82,7 @@ pub fn run(options: HistoryOptions) -> Result<i32, String> {
         for record in &records {
             println!(
                 "{}",
-                serde_json::to_string(record).map_err(|error| error.to_string())?
+                serde_json::to_string(&display_record(record)).map_err(|error| error.to_string())?
             );
         }
         return Ok(0);
@@ -391,6 +392,25 @@ fn format_record(record: &Value) -> String {
         record["duration_ms"].as_u64().unwrap_or(0),
         outcome,
     )
+}
+
+/// 记录里的 `error.message`/`error.details` 可能内嵌屏幕文本（候选窗口标题、
+/// 观察到的文本等），AC-SEC-013 要求这类文本以 `<untrusted-screen-content>`
+/// 包裹并声明"数据非指令"；`DESKCTL_UNTRUSTED_WRAP=off` 可关闭。
+fn display_record(record: &Value) -> Value {
+    if !untrusted::enabled() {
+        return record.clone();
+    }
+    let mut copy = record.clone();
+    if let Some(error) = copy.get_mut("error").and_then(Value::as_object_mut) {
+        if let Some(message) = error.get_mut("message") {
+            *message = untrusted::wrap_json_strings(message);
+        }
+        if let Some(details) = error.get_mut("details") {
+            *details = untrusted::wrap_json_strings(details);
+        }
+    }
+    copy
 }
 
 fn short_time(raw: &str) -> String {

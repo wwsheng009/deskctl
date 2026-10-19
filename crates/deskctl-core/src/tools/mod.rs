@@ -1502,7 +1502,7 @@ fn find_text(engine: &Engine, args: &Value) -> Result<ToolExecution, ToolError> 
                 capture.screen_rect.y + element.rect.y + element.rect.height as i32 / 2,
             ));
             matches.push(json!({
-                "word": element.text,
+                "word": crate::untrusted::wrap(&element.text),
                 "x": center.0,
                 "y": center.1,
                 "width": element.rect.width,
@@ -1723,7 +1723,7 @@ fn perceive(engine: &Engine, session: &Session, args: &Value) -> Result<ToolExec
         public.push(json!({
             "element_id": id,
             "kind": element.kind,
-            "text": element.text,
+            "text": crate::untrusted::wrap(&element.text),
             "rect": element.rect,
             "confidence": element.confidence,
             "screen_center": screen_center
@@ -1813,8 +1813,8 @@ fn read_kv(engine: &Engine, session: &Session, args: &Value) -> Result<ToolExecu
         .iter()
         .map(|pair| {
             json!({
-                "label": pair.label.text,
-                "value": pair.value.text,
+                "label": crate::untrusted::wrap(&pair.label.text),
+                "value": crate::untrusted::wrap(&pair.value.text),
                 "label_rect": { "x": pair.label.x, "y": pair.label.y, "width": pair.label.width, "height": pair.label.height },
                 "value_rect": { "x": pair.value.x, "y": pair.value.y, "width": pair.value.width, "height": pair.value.height },
                 "row": pair.row,
@@ -1826,7 +1826,7 @@ fn read_kv(engine: &Engine, session: &Session, args: &Value) -> Result<ToolExecu
         .iter()
         .map(|element| {
             json!({
-                "text": element.text,
+                "text": crate::untrusted::wrap(&element.text),
                 "rect": { "x": element.x, "y": element.y, "width": element.width, "height": element.height },
                 "confidence": element.confidence
             })

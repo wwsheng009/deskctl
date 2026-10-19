@@ -22,6 +22,7 @@
 | D2 Agent 身份 | 完成 | `session create --owner`（小写规范化、`[a-zA-Z0-9._:@-]`、1..64、保留名拒绝）；MCP `clientInfo.name`→`mcp:<name>`（缺失 `mcp:unknown`）；`session list --owner` 精确过滤；`DESKCTL_OWNER_MAX_SESSIONS` per-owner 限额（超限 `resource_busy`）且不影响其他 owner；审计归因与 `history --owner`（`prefix*` 通配）/`by_owner`（p50/p95）；`doctor.owner_limits`；协议与工具数不变；契约测试 4 + 单测 3 |
 | D3 录制与回放 | 完成（E2E-012 真机 SAP 流程待回归） | `desktop_recorder_start/stop`（会话内单录制器、include_reads、max_steps/256KiB 上限、`allow_relaunch` 覆盖）、`desktop_script_run`（解析/静态校验/preflight/dry-run/逐步执行/重试/重绑/核验/run report/outcome/handoff）、`desktop_file_hash`（readback 强核验）；目标描述+指纹解析（strict/balanced/loose、歧义/指纹不符/stale 分码、`launch_ref` 受限重启、5 次重绑预算）；审计 `run_id` + `history --run`；CLI `record start/stop --out`、`script validate|run`；工具数 36 → 40（standard 34 → 38）；契约测试 3 + 单测 19 |
 | D4 检查点与补偿 | 完成（真机 GUI 差异样本待回归） | `desktop_checkpoint_save/verify`（会话内存、单会话 8 个同名覆盖、命名 `[a-z0-9._-]{1,32}`、导出/读取 `deskctl-checkpoint/1` 共用允许根策略）；四类差异 `value`/`checked`/`exists`/`rect`（`values_only` 跳过矩形，窗口消失记 `missing`）；`script_run` 的 `checkpoint`（运行前保存 + 收尾校验进 report）与 `compensation`（默认 dry-run 计划，`apply`/`--apply-compensation` 才执行，固定 `bounded_write` + `on_error=stop`、不做二级补偿）；`purpose=compensation` 默认 dry-run；CLI `script run --checkpoint/--compensation/--apply-compensation`；工具数 40 → 42（standard 38 → 40）；顺带修复允许根策略对"尚不存在文件"的误拒（Windows `canonicalize` verbatim 前缀）；契约测试 4 + 单测 5 |
+| S1 屏幕文本注入防御 | 完成 | `perceive`/`read_kv`/`find_text` 的 OCR 文本与 `history --json` 记录的 `error.message`/`error.details` 字符串以 `<untrusted-screen-content>…</untrusted-screen-content>` 包裹并声明"数据非指令"；`DESKCTL_UNTRUSTED_WRAP=off`（或 `0`/`false`/`no`/`disabled`）关闭，默认开启；工具描述同步声明；未包裹面见 known-limitations；单测 3 + 契约测试 2 |
 
 ## 2. 已验证能力
 
@@ -154,16 +155,22 @@
   默认 `apply=false` 只产出 dry-run 计划（步骤零派发），`apply=true` 时以
   `risk_max=bounded_write`+`on_error=stop` 真实执行且自身失败只记录 `compensation.error`；
   脚本 `purpose=compensation` 未显式给 `dry_run` 时默认 dry-run
+- S1 屏幕文本注入防御（AC-SEC-013）：`perceive` 的 `elements[].text`、`read_kv` 的
+  `pairs[].label/value` 与 `unpaired[].text`、`find_text` 的 `matches[].word` 返回前包裹
+  `<untrusted-screen-content>…</untrusted-screen-content>`；`history --json` 输出把记录内
+  `error.message` 与 `error.details` 的字符串递归包裹（窗口标题等屏幕文本），其余字段与
+  JSON 结构不变；`DESKCTL_UNTRUSTED_WRAP=off` 关闭包裹（默认开启，安全默认）；
+  `desktop_perceive`/`desktop_read_kv`/`desktop_find_text` 描述里声明"数据非指令"
 
 ## 3. 测试状态
 
 `cargo test --workspace` 通过：
 
 ```text
-deskctl-cli:      34 passed（agent_identity 4、audit_history 7、checkpoint_contract 4、cli_contract 3、mcp_smoke 4、script_contract 3、skills_contract 1、tool_contract 6、main 单测 2）
-deskctl-core:    104 passed（lib 98、path_policy 2、session_isolation 4）
+deskctl-cli:      36 passed（agent_identity 4、audit_history 7、checkpoint_contract 4、cli_contract 3、mcp_smoke 4、script_contract 3、skills_contract 1、tool_contract 6、untrusted_wrap 2、main 单测 2）
+deskctl-core:    107 passed（lib 101、path_policy 2、session_isolation 4）
 deskctl-protocol:  3 passed
-合计:            141 passed, 0 failed
+合计:            146 passed, 0 failed
 ```
 
 `cargo fmt --all -- --check` 与 `cargo clippy --workspace --all-targets -- -D warnings` 均无告警
@@ -221,6 +228,10 @@ deskctl-protocol:  3 passed
   （checkpoint_contract 4）
 - 允许根策略：根内不存在文件放行（Windows `canonicalize` 回退路径与 verbatim 根比较）、
   根外拒绝（config 单测 2）
+- S1 屏幕文本包裹：开关解析（on/off 变体、默认开启）、纯函数包裹（空串/关闭恒等）、
+  递归 JSON 字符串包裹（untrusted 单测 3）
+- S1 契约：`history --json` 默认包裹 `error.message`/`error.details`（含候选窗口标题等屏幕文本）
+  且非文本字段与结构原样；`DESKCTL_UNTRUSTED_WRAP=off` 恢复原文（untrusted_wrap 2）
 
 ## 4. 运行时资源
 
@@ -321,6 +332,11 @@ pwsh scripts/fetch-models.ps1
 - AC-SEC-001/002/003/004/005/006/009/010（安全脚本 12/12：本地监听、token 校验、无审批字段、风险元数据、自定义路径、字库穿越、会话隔离、无脚本执行）
 - AC-AUD-001..008（D1：daemon E2E 恰好一条含失败、oneshot 字段与 digest 复算、文本/键名单脱敏、
   history 过滤与聚合、轮转保留、写失败降级、日志默认不含明文与 `--run` 过滤就绪；开销 A/B ≤0.5%）
+- AC-AGT-001..004（D2：owner 规范化/过滤/限额/归因；契约测试 `agent_identity.rs`）
+- AC-RPL-001..009/013/014（D3：录制/参数化/校验/dry-run/报告/重试/重绑/核验/outcome/handoff；
+  契约测试 `script_contract.rs`；L2/L3 引擎未启用）
+- AC-TXN-001..003（D4：检查点保存/四类差异/补偿 dry-run 与 apply；契约测试 `checkpoint_contract.rs`）
+- AC-SEC-013（S1：OCR 输出与 history 错误文本包裹 + 开关；契约测试 `untrusted_wrap.rs`）
 
 未满足或未验证：
 
@@ -342,6 +358,8 @@ pwsh scripts/fetch-models.ps1
 - 支持 MCP
 - 支持 OCR 和 UIA
 - 支持审计与历史查询（D1）
+- 支持 Agent 身份与归因（D2）、录制/回放脚本（D3）、检查点与补偿（D4）
+- 屏幕文本作为不可信数据包裹（S1/AC-SEC-013）
 
 但尚未达到 `acceptance-criteria.md` 的完整发布门禁。性能与安全/会话矩阵已完成本机实测；
 主要剩余工作是干净机安装、代码签名、固定参考机器基线、Windows 10 回归与 AC-EXT-*。
