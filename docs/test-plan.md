@@ -494,10 +494,24 @@ deskctl call <sess> desktop_checkpoint_verify {name:"e2e"}
 deskctl tool desktop_window_move {hwnd, 原位} -> verify -> matched=true, diffs=0
 ```
 
-结论：`rect` 差异路径真机命中且 expected/actual 与窗口移动量精确一致，还原后回到 matched；
-`value`/`checked`/`exists`/`missing` 四类差异由 `checkpoint.rs` 单测与
+结论：`rect` 差异路径真机命中且 expected/actual 与窗口移动量精确一致，还原后回到 matched。
+
+第二个样本（`value` 类，2026-10-19，独立 WinForms 窗口，不触碰用户窗口）：
+
+```text
+powershell -STA 启动 WinForms 窗口（title=deskctl-e2e-form，Timer 45s 后标题改为 -2）
+desktop_checkpoint_save {name:"v", targets:[窗口], values:[{name:"title", kind:"value",
+  locator:{window_id:"hwnd:<n>", role:"window"}}]}
+  -> saved value="deskctl-e2e-form"；verify -> matched=true, diffs=0
+45s 后窗口标题变化 -> verify -> matched=false, diffs=1:
+  {kind:"value", expected:"deskctl-e2e-form", actual:"deskctl-e2e-form-2"}
+kill 宿主进程 -> 窗口消失（无残留）
+```
+
+结论补充：`value` 差异路径真机命中（走 `uia.rs::read_node_value` 的 UIA Name 回退）；
+`checked`/`exists`/`missing` 由 `checkpoint.rs` 单测与
 `crates/deskctl-cli/tests/checkpoint_contract.rs` 覆盖；补偿 dry-run/apply 两态由契约测试验证；
-SAP 场景（值类真机样本）与 `--apply-compensation` 真机回滚仍属可选真机项。
+SAP 场景（真实业务值样本）与 `--apply-compensation` 真机回滚仍属可选真机项。
 
 ## 9. 并发与压力测试
 

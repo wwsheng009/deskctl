@@ -646,7 +646,7 @@ scripts/package-models.ps1
   `compensation`（默认 dry-run 计划、`apply` 才执行、固定 `bounded_write` + `on_error=stop`）、
   脚本 `purpose=compensation` 默认 dry-run；CLI `script run --checkpoint/--compensation/
   --apply-compensation`；工具数 40 → 42（见 [design/checkpoint-transaction.md](design/checkpoint-transaction.md)、
-  [implementation-status.md](implementation-status.md)；矩形差异路径已真机回归，见
+  [implementation-status.md](implementation-status.md)；`rect`/`value` 差异路径已真机回归，见
   [test-plan.md](test-plan.md) §8 E2E-013 回归记录）。
 - S1 屏幕文本注入防御已实施（2026-10-19）：`perceive`/`read_kv`/`find_text` 的 OCR/视觉文本与
   `history --json` 中 `error.message`/`error.details` 字符串以
