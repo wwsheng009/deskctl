@@ -16,6 +16,20 @@ fn help_lists_required_commands() {
 }
 
 #[test]
+fn serve_help_lists_allow_input_root() {
+    let output = Command::new(env!("CARGO_BIN_EXE_deskctl"))
+        .args(["serve", "--help"])
+        .output()
+        .expect("run deskctl serve --help");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("--allow-input-root"),
+        "serve help must document explicit input roots: {stdout}"
+    );
+}
+
+#[test]
 fn doctor_returns_structured_json() {
     let output = Command::new(env!("CARGO_BIN_EXE_deskctl"))
         .args(["doctor"])

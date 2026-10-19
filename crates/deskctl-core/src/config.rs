@@ -25,6 +25,9 @@ pub struct Config {
     pub resource_wait: Duration,
     pub capture: CapturePolicy,
     pub audit: AuditConfig,
+    /// Extra roots explicitly granted for image/document reads (for example
+    /// `serve --allow-input-root <dir>`).
+    pub input_roots: Vec<PathBuf>,
 }
 
 impl Default for Config {
@@ -45,6 +48,7 @@ impl Default for Config {
             resource_wait: Duration::from_secs(env_u64("DESKCTL_RESOURCE_WAIT_SECS", 30)),
             capture: capture_policy_from_env(),
             audit: AuditConfig::from_env(),
+            input_roots: Vec::new(),
         }
     }
 }
@@ -84,18 +88,24 @@ impl Config {
         let _ = std::fs::create_dir_all(&self.output_dir);
     }
 
-    pub fn is_allowed_image_path(&self, path: &Path) -> bool {
+    pub fn is_allowed_input_path(&self, path: &Path) -> bool {
         if std::env::var_os("DESKCTL_ALLOW_ANY_INPUT").is_some() {
             return true;
         }
         let path = comparable_path(path);
-        self.allowed_image_roots()
+        self.allowed_input_roots()
             .into_iter()
             .any(|root| path.starts_with(comparable_path(&root)))
     }
 
-    /// 返回允许读取的图像根目录（doctor 输出与 policy_denied 提示共用）。
-    pub fn allowed_image_roots(&self) -> Vec<PathBuf> {
+    /// Backwards-compatible alias; document reads and image reads share the
+    /// same policy.
+    pub fn is_allowed_image_path(&self, path: &Path) -> bool {
+        self.is_allowed_input_path(path)
+    }
+
+    /// 返回允许读取的输入根目录（doctor 输出与 policy_denied 提示共用）。
+    pub fn allowed_input_roots(&self) -> Vec<PathBuf> {
         if std::env::var_os("DESKCTL_ALLOW_ANY_INPUT").is_some() {
             return vec![PathBuf::from("<any: DESKCTL_ALLOW_ANY_INPUT>")];
         }
@@ -105,10 +115,20 @@ impl Config {
             std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             std::env::temp_dir(),
         ];
+        roots.extend(self.input_roots.iter().cloned());
         if let Ok(root) = std::env::var("DESKCTL_ALLOWED_INPUT_ROOT") {
             roots.push(PathBuf::from(root));
         }
+        if let Ok(value) = std::env::var("DESKCTL_ALLOWED_INPUT_ROOTS") {
+            roots.extend(std::env::split_paths(&value).filter(|root| !root.as_os_str().is_empty()));
+        }
         roots
+    }
+
+    /// Backwards-compatible alias for callers that still speak in terms of
+    /// image roots.
+    pub fn allowed_image_roots(&self) -> Vec<PathBuf> {
+        self.allowed_input_roots()
     }
 }
 
@@ -286,5 +306,23 @@ mod tests {
             return; // 极端环境下（cwd 恰为 C:\Windows\System32）跳过。
         }
         assert!(!config.is_allowed_image_path(&outside));
+    }
+
+    #[test]
+    fn explicit_input_roots_are_allowed() {
+        if std::env::var_os("DESKCTL_ALLOW_ANY_INPUT").is_some() {
+            return; // <any> short-circuits the roots list.
+        }
+        let root = PathBuf::from("C:/ProgramData/deskctl-policy-probe");
+        let config = Config {
+            input_roots: vec![root.clone()],
+            ..Config::default()
+        };
+        let probe = root.join("report.docx");
+        assert!(config.is_allowed_input_path(&probe), "{}", probe.display());
+        assert!(config
+            .allowed_input_roots()
+            .iter()
+            .any(|item| comparable_path(item) == comparable_path(&root)));
     }
 }

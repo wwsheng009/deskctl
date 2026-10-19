@@ -1384,11 +1384,11 @@ fn find_image(engine: &Engine, args: &Value) -> Result<ToolExecution, ToolError>
         .filter(|value| !value.trim().is_empty())
     {
         let path = Path::new(template_path.trim());
-        if !engine.config().is_allowed_image_path(path) {
+        if !engine.config().is_allowed_input_path(path) {
             return Err(ToolError::new(
                 ErrorCode::PolicyDenied,
                 format!(
-                    "template path is outside configured image roots: {}",
+                    "template path is outside allowed input roots: {}",
                     path.display()
                 ),
             ));
@@ -2224,7 +2224,7 @@ fn docx_save(engine: &Engine, session: &Session, args: &Value) -> Result<ToolExe
 /// 读取 `.docx` 的段落/表格/内嵌图片数量。
 fn docx_read(engine: &Engine, args: &Value) -> Result<ToolExecution, ToolError> {
     let raw = required_str(args, "path")?;
-    let path = normalize_image_path(engine, raw)?;
+    let path = normalize_allowed_path(engine, raw)?;
     let content = crate::docx::read_document(&path)?;
     Ok(ToolExecution::read(json!({
         "path": path.display().to_string(),
@@ -2240,7 +2240,7 @@ fn docx_read(engine: &Engine, args: &Value) -> Result<ToolExecution, ToolError> 
 /// 读取 `.xlsx`/`.xls`/`.ods` 的工作表与单元格值。
 fn xlsx_read(engine: &Engine, args: &Value) -> Result<ToolExecution, ToolError> {
     let raw = required_str(args, "path")?;
-    let path = normalize_image_path(engine, raw)?;
+    let path = normalize_allowed_path(engine, raw)?;
     let range = args
         .get("range")
         .and_then(Value::as_str)
@@ -2339,7 +2339,7 @@ fn xlsx_save(args: &Value) -> Result<ToolExecution, ToolError> {
 /// 读取 `.pptx` 的每页文本与图片数量。
 fn pptx_read(engine: &Engine, args: &Value) -> Result<ToolExecution, ToolError> {
     let raw = required_str(args, "path")?;
-    let path = normalize_image_path(engine, raw)?;
+    let path = normalize_allowed_path(engine, raw)?;
     let presentation = crate::pptx::read_presentation(&path)?;
     Ok(ToolExecution::read(json!({
         "path": path.display().to_string(),
@@ -2998,6 +2998,19 @@ fn images_differ(left: &image::RgbaImage, right: &image::RgbaImage) -> bool {
     left.dimensions() != right.dimensions() || left.as_raw() != right.as_raw()
 }
 
+fn input_roots_hint(engine: &Engine) -> String {
+    let roots: Vec<String> = engine
+        .config()
+        .allowed_input_roots()
+        .into_iter()
+        .map(|root| root.display().to_string())
+        .collect();
+    format!(
+        "allowed roots: {}; restart `deskctl serve --allow-input-root <dir>` or set DESKCTL_ALLOWED_INPUT_ROOT/DESKCTL_ALLOWED_INPUT_ROOTS",
+        roots.join(", ")
+    )
+}
+
 pub(crate) fn normalize_image_path(
     engine: &Engine,
     value: &str,
@@ -3008,19 +3021,13 @@ pub(crate) fn normalize_image_path(
     } else {
         std::env::current_dir()?.join(path)
     };
-    if !engine.config().is_allowed_image_path(&absolute) {
-        let roots: Vec<String> = engine
-            .config()
-            .allowed_image_roots()
-            .into_iter()
-            .map(|root| root.display().to_string())
-            .collect();
+    if !engine.config().is_allowed_input_path(&absolute) {
         return Err(ToolError::new(
             ErrorCode::PolicyDenied,
             format!(
-                "image path '{}' is outside configured image roots ({}); move the file into one of these roots, set DESKCTL_ALLOWED_INPUT_ROOT, or pass capture_id when the image came from a deskctl capture",
+                "input path '{}' is outside allowed roots ({}); pass capture_id when the image came from a deskctl capture",
                 absolute.display(),
-                roots.join(", ")
+                input_roots_hint(engine)
             ),
         )
         .retryable(false));
@@ -3039,19 +3046,13 @@ pub(crate) fn normalize_allowed_path(
     } else {
         std::env::current_dir()?.join(path)
     };
-    if !engine.config().is_allowed_image_path(&absolute) {
-        let roots: Vec<String> = engine
-            .config()
-            .allowed_image_roots()
-            .into_iter()
-            .map(|root| root.display().to_string())
-            .collect();
+    if !engine.config().is_allowed_input_path(&absolute) {
         return Err(ToolError::new(
             ErrorCode::PolicyDenied,
             format!(
-                "path '{}' is outside the configured allowed roots ({}); move the file into one of these roots or set DESKCTL_ALLOWED_INPUT_ROOT",
+                "path '{}' is outside allowed roots ({}); move the file into one of these roots or set DESKCTL_ALLOWED_INPUT_ROOT/DESKCTL_ALLOWED_INPUT_ROOTS",
                 absolute.display(),
-                roots.join(", ")
+                input_roots_hint(engine)
             ),
         )
         .retryable(false));

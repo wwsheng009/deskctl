@@ -61,6 +61,9 @@ enum Commands {
         /// Preload OCR/YOLO models before accepting requests.
         #[arg(long)]
         warmup: bool,
+        /// Allow input reads under this directory (repeatable).
+        #[arg(long = "allow-input-root", value_name = "PATH")]
+        allow_input_roots: Vec<PathBuf>,
     },
     /// Call a tool on an existing daemon session.
     Call {
@@ -449,11 +452,13 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
             token_file,
             max_sessions,
             warmup,
+            allow_input_roots,
         } => {
             let socket = socket.unwrap_or_else(config::default_socket_name);
             let token_file = token_file.unwrap_or_else(config::token_path);
             let mut config = config_for(profile);
             config.max_sessions = max_sessions.max(1);
+            config.input_roots.extend(allow_input_roots);
             let idle_instances = config.max_sessions + 2;
             let engine = Engine::new(config);
             if warmup {

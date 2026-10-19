@@ -75,7 +75,7 @@ pub fn report() -> Value {
             "models_dir": models.as_ref().map(|p| p.display().to_string()),
         },
         "allowed_input_roots": crate::config::Config::default()
-            .allowed_image_roots()
+            .allowed_input_roots()
             .iter()
             .map(|root| root.display().to_string())
             .collect::<Vec<_>>(),

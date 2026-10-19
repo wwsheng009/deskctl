@@ -75,7 +75,7 @@ Keep token files in a user-only directory; deskctl does not rewrite their ACLs.
 ## Daemon and sessions
 
 ```powershell
-deskctl serve --warmup
+deskctl serve --warmup --allow-input-root "C:\data\sap-docs"
 deskctl session create --token-out .\session.token
 deskctl session list
 deskctl call <session_id> desktop_screenshot --session-token-file .\session.token --json '{}' --output shot.json
@@ -90,6 +90,17 @@ deskctl shutdown
 `serve --warmup` preloads OCR/YOLO models before the pipe starts listening;
 startup takes longer, but the first `desktop_perceive` avoids the one-time
 model-load latency.
+
+Input reads are limited by default to the models/output directories, the
+current directory and `%TEMP%`. Grant additional roots explicitly with the
+repeatable `serve --allow-input-root <dir>` flag or
+`DESKCTL_ALLOWED_INPUT_ROOT` / `DESKCTL_ALLOWED_INPUT_ROOTS` (path-list).
+Document reads (`docx`/`xlsx`/
+`pptx`) use the same policy. `DESKCTL_ALLOW_ANY_INPUT` disables the policy and
+should only be used in a trusted local environment.
+
+Examples use generic paths; keep customer paths and names in local
+configuration rather than committing them to the repository.
 
 The daemon listens only on the local named pipe `\\.\pipe\deskctl` by default.
 Every request requires the access token from the token file. `session create
