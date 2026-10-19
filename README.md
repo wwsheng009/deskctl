@@ -105,6 +105,19 @@ image was served from the daemon's in-process OCR cache.
 and offset from the window), and `desktop_window_screenshot` accepts a `region`
 crop relative to the captured image.
 
+For legacy Word documents, `doc-extract` uses Word COM to export UTF-8 text and
+embedded images, and can generate the OCR batch file in one step:
+
+```powershell
+deskctl doc-extract --file .\report.doc --out-dir .\report --batch-out .\report\images.jsonl
+deskctl batch --file .\report\images.jsonl --session <session_id> `
+  --session-token-file .\session.token --output-dir .\report\ocr
+```
+
+Outputs are `document.txt`, `document.html`, `document.files/`, and
+`metadata.json`; `--batch-out` writes one `desktop_perceive text_only=true`
+request per exported image. Requires Windows and Microsoft Word.
+
 For a sequence of calls, write one JSON object per line and run it in one
 process:
 

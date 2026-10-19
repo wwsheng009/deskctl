@@ -2,6 +2,7 @@ mod batch;
 mod bench;
 mod client;
 mod daemon;
+mod doc_extract;
 mod history;
 mod mcp;
 mod output;
@@ -111,6 +112,22 @@ enum Commands {
         /// Stop after the first failed item.
         #[arg(long)]
         stop_on_error: bool,
+    },
+    /// Extract text and embedded images from a Word document via Word COM.
+    DocExtract {
+        #[arg(long)]
+        file: PathBuf,
+        #[arg(long)]
+        out_dir: PathBuf,
+        /// Write metadata JSON to this UTF-8 file instead of stdout.
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// Write a JSONL batch of desktop_perceive calls for the exported images.
+        #[arg(long)]
+        batch_out: Option<PathBuf>,
+        /// Emit compact metadata JSON.
+        #[arg(long)]
+        compact: bool,
     },
     /// Manage daemon sessions.
     Session {
@@ -504,6 +521,19 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
             })
             .await
         }
+        Commands::DocExtract {
+            file,
+            out_dir,
+            output,
+            batch_out,
+            compact,
+        } => doc_extract::run(doc_extract::DocExtractOptions {
+            file,
+            out_dir,
+            output,
+            batch_out,
+            compact,
+        }),
         Commands::Session { command } => {
             let (method, params, socket, token_file, token_out) = match command {
                 SessionCommands::Create {
