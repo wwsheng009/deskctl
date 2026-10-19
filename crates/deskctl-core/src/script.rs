@@ -21,7 +21,8 @@ use crate::session::{Session, TargetBinding};
 use crate::tools::ToolExecution;
 
 pub const SCRIPT_FORMAT: &str = "deskctl-script/1";
-pub const RUN_REPORT_FORMAT: &str = "deskctl-run-report/1";
+/// 重放报告格式（data-formats §2.5）。
+pub const RUN_REPORT_FORMAT: &str = "deskctl-script-run/1";
 pub const MAX_STEPS: usize = 500;
 pub const DEFAULT_RISK_MAX: &str = "bounded_write";
 /// 一次 run 内允许的目标重绑预算（§4.4.4：最多 5 次，防"重启-失败"循环）。
@@ -379,6 +380,8 @@ pub struct Ctx {
     pub targets: HashMap<String, TargetRef>,
     pub vars: Map<String, Value>,
     pub steps: Map<String, Value>,
+    /// 当前会话 id（`$session.id`）。
+    pub session_id: String,
 }
 
 /// 会话内已解析/已绑定的目标。
@@ -389,6 +392,8 @@ pub struct TargetRef {
     pub token: String,
     pub app_ref: String,
     pub title: String,
+    pub pid: i64,
+    pub class_name: String,
     pub spec: Value,
     /// preflight/runtime 解析期间是否通过 `launch_ref` 重启了应用。
     pub relaunched: bool,
@@ -401,6 +406,8 @@ impl TargetRef {
             "token" => Some(json!(self.token)),
             "app_ref" => Some(json!(self.app_ref)),
             "title" => Some(json!(self.title)),
+            "pid" => Some(json!(self.pid)),
+            "class_name" => Some(json!(self.class_name)),
             _ => None,
         }
     }
@@ -475,6 +482,13 @@ fn resolve_ref(path: &str, ctx: &Ctx, current: Option<&Value>) -> Result<Value, 
             std::env::var(key)
                 .map(Value::String)
                 .map_err(|_| format!("environment variable {key} is not set"))?
+        }
+        "session" => {
+            let field = segments.get(1).copied().unwrap_or_default();
+            match field {
+                "id" => json!(ctx.session_id),
+                other => return Err(format!("$session has no field '{other}'")),
+            }
         }
         "steps" => {
             let id = segments
@@ -1046,6 +1060,11 @@ fn bind_target(
         .as_i64()
         .ok_or_else(|| ToolError::new(ErrorCode::Internal, "window_info did not return hwnd"))?;
     let title = window["title"].as_str().unwrap_or_default().to_string();
+    let pid = window["process_id"].as_i64().unwrap_or_default();
+    let class_name = window["class_name"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
     let app_ref = spec
         .get("match")
         .and_then(|value| value.get("app_ref"))
@@ -1071,6 +1090,8 @@ fn bind_target(
         token,
         app_ref,
         title,
+        pid,
+        class_name,
         spec: spec.clone(),
         relaunched,
     })
@@ -1249,6 +1270,17 @@ pub fn validate_static(script: &Script, allowed_risk: RiskClass) -> Vec<Issue> {
                         format!("$env.{key} is not allowed (only DESKCTL_*)"),
                     ));
                 }
+                continue;
+            }
+            if reference == "session.id" {
+                continue; // 运行时由会话提供
+            }
+            if let Some(rest) = reference.strip_prefix("session.") {
+                issues.push(Issue::at(
+                    "unknown_reference",
+                    &step.id,
+                    format!("$session.{rest} is not supported (only $session.id)"),
+                ));
                 continue;
             }
             if reference.starts_with("result.") || reference == "result" {
@@ -1811,7 +1843,11 @@ async fn verify_screen(
 fn expectation_for(verify: &Value) -> Result<Value, String> {
     if let Some(expectation) = verify.get("expectation") {
         if expectation.is_object() {
-            return Ok(expectation.clone());
+            let mut expectation = expectation.clone();
+            if let Some(samples) = verify.get("stable_samples") {
+                expectation["stable_samples"] = samples.clone();
+            }
+            return Ok(expectation);
         }
     }
     let kind = verify
@@ -1826,21 +1862,40 @@ fn expectation_for(verify: &Value) -> Result<Value, String> {
             if let Some(value) = value.as_ref().and_then(Value::as_str) {
                 locator.insert("accessible_name".to_string(), json!(value));
             }
-            Ok(json!({ "locator": Value::Object(locator), "condition": "exists" }))
+            Ok(with_samples(
+                json!({ "locator": Value::Object(locator), "condition": "exists" }),
+                verify,
+            ))
         }
-        "element_exists" => Ok(json!({ "locator": locator, "condition": "exists" })),
-        "value_equals" => Ok(json!({
-            "locator": locator,
-            "condition": "value_equals",
-            "value": value.unwrap_or(Value::Null)
-        })),
-        "checked" => Ok(json!({
-            "locator": locator,
-            "condition": "checked",
-            "expected": verify.get("expected").and_then(Value::as_bool).unwrap_or(true)
-        })),
+        "element_exists" => Ok(with_samples(
+            json!({ "locator": locator, "condition": "exists" }),
+            verify,
+        )),
+        "value_equals" => Ok(with_samples(
+            json!({
+                "locator": locator,
+                "condition": "value_equals",
+                "value": value.unwrap_or(Value::Null)
+            }),
+            verify,
+        )),
+        "checked" => Ok(with_samples(
+            json!({
+                "locator": locator,
+                "condition": "checked",
+                "expected": verify.get("expected").and_then(Value::as_bool).unwrap_or(true)
+            }),
+            verify,
+        )),
         other => Err(format!("unsupported screen verify kind '{other}'")),
     }
+}
+
+fn with_samples(mut expectation: Value, verify: &Value) -> Value {
+    if let Some(samples) = verify.get("stable_samples") {
+        expectation["stable_samples"] = samples.clone();
+    }
+    expectation
 }
 
 /// readback 强核验：结果是"文件/产物里的真实值"（§2.6）。
@@ -2136,6 +2191,7 @@ async fn execute_plan(
         targets: plan.targets.clone(),
         vars: Map::new(),
         steps: Map::new(),
+        session_id: session.id.clone(),
     };
     // `--from` 续跑：被跳过步骤的 `set` 变量由调用方 params 回填（§4.6.2）。
     if plan.from > 0 {
@@ -2869,6 +2925,7 @@ mod tests {
             targets: HashMap::new(),
             vars: Map::new(),
             steps: Map::new(),
+            session_id: "sess-test".into(),
         };
         ctx.params.insert("text".into(), json!("hello"));
         ctx.vars.insert("hwnd".into(), json!(1234));
@@ -2880,6 +2937,8 @@ mod tests {
                 token: "target-token".into(),
                 app_ref: "app:7:notepad".into(),
                 title: "Untitled".into(),
+                pid: 7,
+                class_name: "Notepad".into(),
                 spec: json!({}),
                 relaunched: false,
             },
@@ -2895,7 +2954,10 @@ mod tests {
             "c": "$var.hwnd",
             "d": "$steps.s1.result.data.path",
             "e": "prefix-$param.text/suffix",
-            "f": 7
+            "f": 7,
+            "g": "$target.notepad.pid",
+            "h": "$target.notepad.class_name",
+            "i": "$session.id"
         });
         let resolved = substitute(&value, &ctx, None).expect("resolve");
         assert_eq!(resolved["a"], "hello");
@@ -2904,6 +2966,9 @@ mod tests {
         assert_eq!(resolved["d"], "out.txt");
         assert_eq!(resolved["e"], "prefix-hello/suffix");
         assert_eq!(resolved["f"], 7);
+        assert_eq!(resolved["g"], 7);
+        assert_eq!(resolved["h"], "Notepad");
+        assert_eq!(resolved["i"], "sess-test");
     }
 
     #[test]
@@ -2913,6 +2978,7 @@ mod tests {
             targets: HashMap::new(),
             vars: Map::new(),
             steps: Map::new(),
+            session_id: "sess-test".into(),
         };
         assert!(substitute(&json!("$param.missing"), &ctx, None).is_err());
         assert!(substitute(&json!("$target.none.hwnd"), &ctx, None).is_err());

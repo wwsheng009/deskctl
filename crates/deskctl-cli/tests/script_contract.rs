@@ -266,7 +266,7 @@ fn record_export_validate_and_dry_run() {
     let report = &run["data"];
     let run_id = report["run_id"].as_str().expect("run_id").to_string();
     assert!(run_id.starts_with("run-"));
-    assert_eq!(report["format"], "deskctl-run-report/1");
+    assert_eq!(report["format"], "deskctl-script-run/1");
     assert_eq!(report["result"], "ok");
     assert_eq!(report["outcome"], "COMPLETED_UNVERIFIED");
     assert_eq!(report["handoff"]["run_id"], run_id.as_str());

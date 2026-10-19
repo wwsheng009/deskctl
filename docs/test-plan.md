@@ -299,7 +299,7 @@ recorder_start 返回 `resource_busy`。参数化断言：绑定 `hwnd` → `$ta
 {dry_run:true}` 不执行工具、不产生步骤审计，逐步输出 `execute|skip_fragile|reject_risk|
 reject_unknown_tool`，`outcome=null`。
 
-**AC-RPL-005/006 执行与重试**：真实 run 返回 `deskctl-run-report/1`（`run_id/started/finished/
+**AC-RPL-005/006 执行与重试**：真实 run 返回 `deskctl-script-run/1`（`run_id/started/finished/
 result/outcome/handoff/steps/rebinds/stats`）；每步审计 `request_id=<run_id>:<step>`，
 `deskctl history --run <run_id>` 恰好返回该 run 的步骤；`on_error=stop|continue` 行为正确；
 仅 `dispatch_state=not_sent` 的步骤按 `retry` 自动重试（`partial/unknown` 不重试）。
