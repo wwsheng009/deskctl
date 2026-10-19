@@ -248,6 +248,22 @@ desktop_targets_list
 需要点击/输入？
   -> Windows 语义可用：desktop_targets_list -> bind -> observe -> execute
   -> 语义不可用：screenshot -> perceive -> mouse/input
+  -> 相对移动/跨屏：desktop_mouse {action:"move_relative", dx, dy}
+  -> 拖选/长按：desktop_mouse {action:"down"} -> move -> {action:"up"}
+  -> 需要按下时长：desktop_mouse {action:"click", hold_ms}
+  -> 落点随机抖动：desktop_mouse {action:"click", jitter_px:3, capture_id, element_id}
+
+需要按键而不是文本？
+  -> 功能键/组合键：desktop_input {mode:"hotkey", keys:[...], hold_ms}
+  -> 单键三次写法：desktop_input {mode:"key", key:"f5" | "vk:0x41" | "scan:0x1E"}
+  -> 按住/释放（Shift 连点、游戏走位）：mode:"key_down" -> ... -> mode:"key_up"
+  -> 重复按键：desktop_input {mode:"key", key:"tab", repeat:5, interval_ms:150}
+  -> 中文/emoji 文本：仍用 mode:"type"（UNICODE，不依赖键盘布局）
+
+需要拟人节奏？
+  -> desktop_input {mode:"type", humanize:"natural", seed:12345, delay_ms:[40,120]}
+  -> desktop_mouse {action:"click", humanize:"light", speed:900, seed:12345}
+  -> 同 seed 可复现同一轨迹/延迟序列；响应回传 seed
 
 需要等待？
   -> desktop_wait_for(change/stable/color)

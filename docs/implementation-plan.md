@@ -617,9 +617,10 @@ scripts/package-models.ps1
 
 ## 15. 实施状态
 
-当前状态：
+实时状态以 [implementation-status.md](implementation-status.md) 为准（本节保留计划视角的摘要）：
 
-- 文档：基本完成
-- 代码：未开始
-- 首个目标：M1 + Sprint 1
-- 推荐下一步：创建 `deskctl-protocol`、`deskctl-core`、`deskctl-cli` 三个 crate，完成 `deskctl doctor` 和 `desktop_screenshot` 垂直切片。
+- M0–M7 完成（M6 部分：`agent_step` 待增强决策 provider）；
+- M8 部分完成（安装脚本/模板/性能与安全基线就绪；代码签名与干净机安装待发布流水线）；
+- I1 输入模拟增强已实施（2026-10-19）：`desktop_mouse` 相对移动/按住释放/拟人轨迹、
+  `desktop_input` 键码三写法/长按/重复/拟人打字；工具数保持 36（见
+  [design/input-simulation.md](design/input-simulation.md)）。

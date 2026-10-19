@@ -1,6 +1,6 @@
 {
   "name": "desktop_input",
-  "description": "Type text or send a hotkey to the foreground or a target window.",
+  "description": "Type text, send a hotkey, or press/release a single key (name, VK code, or scancode) to the foreground or a target window.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -8,7 +8,10 @@
         "type": "string",
         "enum": [
           "type",
-          "hotkey"
+          "hotkey",
+          "key",
+          "key_down",
+          "key_up"
         ]
       },
       "target_locator": {
@@ -106,6 +109,67 @@
           "type": "string"
         },
         "minItems": 1
+      },
+      "key": {
+        "type": "string",
+        "description": "Single key: name (\"enter\"), vk:<0x41|65>, or scan:<0x1E|0xE01D>"
+      },
+      "extended": {
+        "type": "boolean",
+        "default": false,
+        "description": "Force the extended-key flag (arrows, numpad, right-hand modifiers)"
+      },
+      "humanize": {
+        "type": "string",
+        "enum": [
+          "off",
+          "light",
+          "natural"
+        ],
+        "default": "off",
+        "description": "Human-like typing/hold pacing; off keeps legacy behavior"
+      },
+      "seed": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 18446744073709551615
+      },
+      "delay_ms": {
+        "description": "Per-character delay: fixed number or [min,max] range in milliseconds",
+        "oneOf": [
+          {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000
+            },
+            "minItems": 2,
+            "maxItems": 2
+          }
+        ]
+      },
+      "hold_ms": {
+        "type": "integer",
+        "minimum": 5,
+        "maximum": 5000
+      },
+      "repeat": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100,
+        "default": 1
+      },
+      "interval_ms": {
+        "type": "integer",
+        "minimum": 10,
+        "maximum": 10000,
+        "default": 120
       }
     },
     "required": [

@@ -79,17 +79,24 @@ pub fn input_schema(name: ToolName) -> Value {
     match name {
         ToolName::Mouse => object(
             json!({
-                "action": { "type": "string", "enum": ["click","double_click","hover","scroll","position","move"] },
+                "action": { "type": "string", "enum": ["click","double_click","hover","scroll","position","move","move_relative","down","up"] },
                 "hwnd": { "type": "integer" },
                 "capture_id": { "type": "string" },
                 "element_id": { "type": "integer", "minimum": 0 },
                 "x": { "type": "integer" },
                 "y": { "type": "integer" },
+                "dx": { "type": "integer", "description": "move_relative: horizontal offset in physical pixels" },
+                "dy": { "type": "integer", "description": "move_relative: vertical offset in physical pixels" },
                 "button": { "type": "string", "enum": ["left","right","middle"], "default": "left" },
                 "clicks": { "type": "integer", "minimum": 1, "maximum": 2, "default": 1 },
                 "direction": { "type": "string", "enum": ["up","down","left","right"] },
                 "amount": { "type": "integer", "minimum": 1, "maximum": 100, "default": 3 },
-                "allow_occluded": { "type": "boolean", "default": false, "description": "Force a click whose target point is occluded by a different window" }
+                "allow_occluded": { "type": "boolean", "default": false, "description": "Force a click whose target point is occluded by a different window" },
+                "humanize": { "type": "string", "enum": ["off","light","natural"], "default": "off", "description": "Human-like trajectory/pacing; off keeps legacy behavior" },
+                "speed": { "type": "number", "minimum": 200, "maximum": 5000, "description": "Cursor speed in px/s for humanized movement" },
+                "seed": { "type": "integer", "minimum": 0, "maximum": 18446744073709551615u64, "description": "PRNG seed; echoed in the response for reproducibility" },
+                "hold_ms": { "type": "integer", "minimum": 5, "maximum": 5000, "description": "Button hold time between press and release" },
+                "jitter_px": { "type": "integer", "minimum": 0, "maximum": 200, "default": 0, "description": "Landing jitter: random point inside the element (2px inset) or ±px around raw coordinates" }
             }),
             &["action"],
         ),
@@ -102,19 +109,32 @@ pub fn input_schema(name: ToolName) -> Value {
                 "start_x": { "type": "integer" },
                 "start_y": { "type": "integer" },
                 "end_x": { "type": "integer" },
-                "end_y": { "type": "integer" }
+                "end_y": { "type": "integer" },
+                "duration_ms": { "type": "integer", "minimum": 20, "maximum": 5000, "default": 250 },
+                "humanize": { "type": "string", "enum": ["off","light","natural"], "default": "off" },
+                "speed": { "type": "number", "minimum": 200, "maximum": 5000 },
+                "seed": { "type": "integer", "minimum": 0, "maximum": 18446744073709551615u64 },
+                "path": { "type": "string", "enum": ["line","curve"], "description": "Trajectory shape; line keeps legacy behavior" }
             }),
             &[],
         ),
         ToolName::Input => object(
             json!({
-                "mode": { "type": "string", "enum": ["type","hotkey"] },
+                "mode": { "type": "string", "enum": ["type","hotkey","key","key_down","key_up"] },
                 "target_locator": locator(),
                 "hwnd": { "type": "integer" },
                 "launch_ref": { "type": "string", "description": "Optional app_ref from desktop_targets_list; relaunches the app when the target window is missing" },
                 "text": { "type": "string", "maxLength": 65536 },
                 "send": { "type": "string", "enum": ["enter","ctrl+enter","tab","none"], "default": "enter" },
-                "keys": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+                "keys": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+                "key": { "type": "string", "description": "Single key: name (\"enter\"), vk:<0x41|65>, or scan:<0x1E|0xE01D>" },
+                "extended": { "type": "boolean", "default": false, "description": "Force the extended-key flag (arrows, numpad, right-hand modifiers)" },
+                "humanize": { "type": "string", "enum": ["off","light","natural"], "default": "off", "description": "Human-like typing/hold pacing; off keeps legacy behavior" },
+                "seed": { "type": "integer", "minimum": 0, "maximum": 18446744073709551615u64 },
+                "delay_ms": { "description": "Per-character delay: fixed number or [min,max] range in milliseconds", "oneOf": [ { "type": "integer", "minimum": 0, "maximum": 10000 }, { "type": "array", "items": { "type": "integer", "minimum": 0, "maximum": 10000 }, "minItems": 2, "maxItems": 2 } ] },
+                "hold_ms": { "type": "integer", "minimum": 5, "maximum": 5000 },
+                "repeat": { "type": "integer", "minimum": 1, "maximum": 100, "default": 1 },
+                "interval_ms": { "type": "integer", "minimum": 10, "maximum": 10000, "default": 120 }
             }),
             &["mode"],
         ),

@@ -9,8 +9,11 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::engine::{CancelFlag, Engine};
+use crate::humanize::{self, HumanizeMode, Pcg32};
 use crate::platform;
-use crate::session::{CaptureState, ElementLocation, ScreenRect, Session, TargetBinding};
+use crate::session::{
+    CaptureState, ElementLocation, PressedKind, ScreenRect, Session, TargetBinding,
+};
 use crate::vision::locate;
 
 #[derive(Debug)]
@@ -97,9 +100,9 @@ pub async fn execute(
         ToolName::XlsxSave => xlsx_save(args),
         ToolName::PptxRead => pptx_read(engine, args),
         ToolName::PptxSave => pptx_save(engine, session, args),
-        ToolName::Mouse => mouse(session, args),
-        ToolName::MouseDrag => mouse_drag(session, args),
-        ToolName::Input => input(session, args),
+        ToolName::Mouse => mouse(session, args, cancel),
+        ToolName::MouseDrag => mouse_drag(session, args, cancel),
+        ToolName::Input => input(session, args, cancel),
         ToolName::ClipboardWrite => clipboard_write(args),
         ToolName::ClipboardClean => clipboard_clean(),
         ToolName::FindImage => find_image(engine, args),
@@ -284,7 +287,7 @@ fn window_screenshot(
     })))
 }
 
-fn mouse(session: &Session, args: &Value) -> Result<ToolExecution, ToolError> {
+fn mouse(session: &Session, args: &Value, cancel: &CancelFlag) -> Result<ToolExecution, ToolError> {
     let action = required_str(args, "action")?;
     if action == "position" {
         let (x, y) = platform::mouse_position()?;
@@ -292,13 +295,20 @@ fn mouse(session: &Session, args: &Value) -> Result<ToolExecution, ToolError> {
     }
     if !matches!(
         action,
-        "click" | "double_click" | "hover" | "move" | "scroll"
+        "click" | "double_click" | "hover" | "move" | "move_relative" | "down" | "up" | "scroll"
     ) {
-        return Err(invalid("unknown mouse action"));
+        return Err(invalid(
+            "unknown mouse action; expected click, double_click, hover, move, move_relative, down, up, scroll or position",
+        ));
     }
     if let Some(hwnd) = optional_i64(args, "hwnd")? {
         let _ = ensure_foreground(hwnd)?;
     }
+    let humanize = HumanizeMode::parse(args.get("humanize"))?;
+    let speed = humanize::validate_speed(args.get("speed"))?;
+    let hold_arg = humanize::validate_hold_ms(args.get("hold_ms"))?;
+    let jitter_px = humanize::validate_jitter_px(args.get("jitter_px"))?;
+    let mut seed = humanize::validate_seed(args.get("seed"))?;
     let has_capture = args.get("capture_id").is_some();
     let has_element = args.get("element_id").is_some();
     let has_coordinates = args.get("x").is_some() || args.get("y").is_some();
@@ -312,21 +322,70 @@ fn mouse(session: &Session, args: &Value) -> Result<ToolExecution, ToolError> {
             "capture_id + element_id cannot be mixed with raw x/y coordinates",
         ));
     }
-    let point = if has_capture {
+    if action == "move_relative" && (has_capture || has_coordinates) {
+        return Err(invalid("move_relative accepts dx/dy only"));
+    }
+    if action == "scroll" {
+        let direction = args
+            .get("direction")
+            .and_then(Value::as_str)
+            .unwrap_or("down");
+        let amount = args.get("amount").and_then(Value::as_u64).unwrap_or(3);
+        platform::mouse_scroll(
+            direction,
+            u32::try_from(amount).map_err(|_| invalid("amount is too large"))?,
+        )?;
+        let (x, y) = platform::mouse_position()?;
+        return Ok(ToolExecution::wrote(
+            json!({
+                "action": action,
+                "x": x,
+                "y": y,
+                "dispatch_state": "sent"
+            }),
+            DispatchState::Sent,
+        ));
+    }
+    // jitter 仅作用于"落点"类动作：点击族与 down；hover 保持既有语义。
+    let jitter_enabled =
+        jitter_px > 0 && matches!(action, "click" | "double_click" | "down" | "move");
+    let target: Option<(i32, i32)> = if has_capture {
         let capture_id = required_str(args, "capture_id")?;
         let element_id = required_u32(args, "element_id")?;
-        resolve_element(session, capture_id, element_id)?
-    } else if action == "scroll" {
-        platform::mouse_position()?
+        let element = resolve_element_location(session, capture_id, element_id)?;
+        let center = element.screen_center.ok_or_else(|| {
+            ToolError::new(
+                ErrorCode::StaleCapture,
+                "element has no registered screen center",
+            )
+            .retryable(true)
+        })?;
+        if jitter_enabled {
+            let mut rng = humanize::rng_with_seed(&mut seed);
+            Some(jitter_in_rect(&mut rng, &element.rect, center))
+        } else {
+            Some(center)
+        }
+    } else if has_coordinates {
+        let x = required_i32(args, "x")?;
+        let y = required_i32(args, "y")?;
+        if jitter_enabled {
+            let mut rng = humanize::rng_with_seed(&mut seed);
+            Some(jitter_around(&mut rng, x, y, jitter_px))
+        } else {
+            Some((x, y))
+        }
     } else {
-        (required_i32(args, "x")?, required_i32(args, "y")?)
+        None
     };
+    let speed = speed.unwrap_or(humanize::SPEED_DEFAULT);
+    let cancellable = || cancel.load(Ordering::Acquire);
     match action {
         "click" | "double_click" => {
-            let button = args.get("button").and_then(Value::as_str).unwrap_or("left");
-            if !matches!(button, "left" | "right" | "middle") {
-                return Err(invalid("button must be left, right or middle"));
-            }
+            let point = target.ok_or_else(|| {
+                invalid("click requires x/y coordinates or capture_id + element_id")
+            })?;
+            let button = mouse_button_arg(args)?;
             let clicks = if action == "double_click" {
                 2
             } else {
@@ -354,31 +413,301 @@ fn mouse(session: &Session, args: &Value) -> Result<ToolExecution, ToolError> {
                     }
                 }
             }
-            platform::mouse_click(point.0, point.1, button, clicks as u8)?;
+            if !humanize.enabled() && hold_arg.is_none() {
+                platform::mouse_click(point.0, point.1, button, clicks as u8)?;
+                return Ok(ToolExecution::wrote(
+                    json!({
+                        "action": action,
+                        "x": point.0,
+                        "y": point.1,
+                        "button": button,
+                        "clicks": clicks,
+                        "dispatch_state": "sent"
+                    }),
+                    DispatchState::Sent,
+                ));
+            }
+            // 冲突清理：同一按钮仍有未配对的按下时先释放，避免状态错乱。
+            if session.clear_pressed(PressedKind::Button, button) {
+                let _ = platform::mouse_button(button, false);
+            }
+            let mut rng = humanize::rng_with_seed(&mut seed);
+            let mut path_points = None;
+            if humanize.enabled() {
+                let current = platform::mouse_position()?;
+                let plan = humanize::plan_move(current, point, humanize, speed, &mut rng);
+                humanize::ensure_total_cap(plan.total_ms)?;
+                let sent = platform::mouse_move_path(&plan.points, &plan.delays_ms, &cancellable)?;
+                path_points = Some(sent);
+                if sent < plan.points.len() {
+                    return Ok(cancelled_mouse(action, point, humanize, seed, path_points));
+                }
+                let pause = humanize::sample_move_pause_ms(&mut rng);
+                if pause > 0 && !humanize::sleep_cancellable(pause, &cancellable) {
+                    return Ok(cancelled_mouse(action, point, humanize, seed, path_points));
+                }
+            } else {
+                platform::mouse_move(point.0, point.1)?;
+            }
+            let hold =
+                hold_arg.unwrap_or_else(|| humanize::sample_mouse_hold_ms(humanize, &mut rng));
+            let gap =
+                humanize::sample_click_gap_ms(humanize, &mut rng, platform::double_click_time_ms());
+            let mut dispatched: u64 = 0;
+            let mut cancelled = false;
+            for index in 0..clicks {
+                if cancel.load(Ordering::Acquire) {
+                    cancelled = true;
+                    break;
+                }
+                platform::mouse_button(button, true)?;
+                if !humanize::sleep_cancellable(hold, &cancellable) {
+                    let _ = platform::mouse_button(button, false);
+                    cancelled = true;
+                    break;
+                }
+                platform::mouse_button(button, false)?;
+                dispatched = index + 1;
+                if clicks > 1
+                    && index + 1 < clicks
+                    && !humanize::sleep_cancellable(gap, &cancellable)
+                {
+                    cancelled = true;
+                    break;
+                }
+            }
+            Ok(ToolExecution::wrote(
+                json!({
+                    "action": action,
+                    "x": point.0,
+                    "y": point.1,
+                    "button": button,
+                    "clicks": clicks,
+                    "dispatched": dispatched,
+                    "hold_ms": hold,
+                    "click_gap_ms": gap,
+                    "humanize": humanize.as_str(),
+                    "seed": seed,
+                    "path_points": path_points,
+                    "cancelled": cancelled,
+                    "dispatch_state": if cancelled { "partial" } else { "sent" }
+                }),
+                if cancelled {
+                    DispatchState::Partial
+                } else {
+                    DispatchState::Sent
+                },
+            ))
         }
-        "hover" | "move" => platform::mouse_move(point.0, point.1)?,
-        "scroll" => {
-            let direction = args
-                .get("direction")
-                .and_then(Value::as_str)
-                .unwrap_or("down");
-            let amount = args.get("amount").and_then(Value::as_u64).unwrap_or(3);
-            platform::mouse_scroll(
-                direction,
-                u32::try_from(amount).map_err(|_| invalid("amount is too large"))?,
-            )?;
+        "hover" | "move" => {
+            let point = target.ok_or_else(|| {
+                invalid("move/hover requires x/y coordinates or capture_id + element_id")
+            })?;
+            let mut path_points = None;
+            if humanize.enabled() {
+                let current = platform::mouse_position()?;
+                let mut rng = humanize::rng_with_seed(&mut seed);
+                let plan = humanize::plan_move(current, point, humanize, speed, &mut rng);
+                humanize::ensure_total_cap(plan.total_ms)?;
+                let sent = platform::mouse_move_path(&plan.points, &plan.delays_ms, &cancellable)?;
+                path_points = Some(sent);
+                if sent < plan.points.len() {
+                    return Ok(cancelled_mouse(action, point, humanize, seed, path_points));
+                }
+            } else {
+                platform::mouse_move(point.0, point.1)?;
+            }
+            let actual = platform::mouse_position().unwrap_or(point);
+            Ok(ToolExecution::wrote(
+                json!({
+                    "action": action,
+                    "x": actual.0,
+                    "y": actual.1,
+                    "humanize": humanize.as_str(),
+                    "seed": seed,
+                    "path_points": path_points,
+                    "dispatch_state": "sent"
+                }),
+                DispatchState::Sent,
+            ))
+        }
+        "move_relative" => {
+            let dx = required_i32(args, "dx")?;
+            let dy = required_i32(args, "dy")?;
+            let current = platform::mouse_position()?;
+            let destination = (current.0.saturating_add(dx), current.1.saturating_add(dy));
+            let mut path_points = None;
+            if humanize.enabled() {
+                let mut rng = humanize::rng_with_seed(&mut seed);
+                let plan = humanize::plan_move(current, destination, humanize, speed, &mut rng);
+                humanize::ensure_total_cap(plan.total_ms)?;
+                let sent = platform::mouse_move_path(&plan.points, &plan.delays_ms, &cancellable)?;
+                path_points = Some(sent);
+                if sent < plan.points.len() {
+                    return Ok(cancelled_mouse(
+                        action,
+                        destination,
+                        humanize,
+                        seed,
+                        path_points,
+                    ));
+                }
+            } else {
+                platform::mouse_move(destination.0, destination.1)?;
+            }
+            let actual = platform::mouse_position().unwrap_or(destination);
+            Ok(ToolExecution::wrote(
+                json!({
+                    "action": action,
+                    "x": actual.0,
+                    "y": actual.1,
+                    "dx": dx,
+                    "dy": dy,
+                    "humanize": humanize.as_str(),
+                    "seed": seed,
+                    "path_points": path_points,
+                    "dispatch_state": "sent"
+                }),
+                DispatchState::Sent,
+            ))
+        }
+        "down" => {
+            let button = mouse_button_arg(args)?;
+            let cleaned = session.clear_pressed(PressedKind::Button, button);
+            if cleaned {
+                let _ = platform::mouse_button(button, false);
+            }
+            if let Some(point) = target {
+                if !args
+                    .get("allow_occluded")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                {
+                    if let Some(expected) = expected_click_target(session, args)? {
+                        if let Some(blocker) = occlusion_blocker(point.0, point.1, expected)? {
+                            return Err(ToolError::new(
+                                ErrorCode::TargetUnavailable,
+                                format!(
+                                    "press target is occluded by another window (pid {}); pass allow_occluded=true to force",
+                                    blocker["process_id"]
+                                ),
+                            )
+                            .details(json!({ "occluded_by": blocker }))
+                            .retryable(true));
+                        }
+                    }
+                }
+                if humanize.enabled() {
+                    let current = platform::mouse_position()?;
+                    let mut rng = humanize::rng_with_seed(&mut seed);
+                    let plan = humanize::plan_move(current, point, humanize, speed, &mut rng);
+                    humanize::ensure_total_cap(plan.total_ms)?;
+                    let sent =
+                        platform::mouse_move_path(&plan.points, &plan.delays_ms, &cancellable)?;
+                    if sent < plan.points.len() {
+                        return Ok(cancelled_mouse(action, point, humanize, seed, Some(sent)));
+                    }
+                } else {
+                    platform::mouse_move(point.0, point.1)?;
+                }
+            }
+            platform::mouse_button(button, true)?;
+            session.mark_pressed(PressedKind::Button, button);
+            let actual = platform::mouse_position().unwrap_or((0, 0));
+            Ok(ToolExecution::wrote(
+                json!({
+                    "action": action,
+                    "button": button,
+                    "x": actual.0,
+                    "y": actual.1,
+                    "pressed": true,
+                    "cleaned_pressed": cleaned,
+                    "dispatch_state": "sent"
+                }),
+                DispatchState::Sent,
+            ))
+        }
+        "up" => {
+            let button = mouse_button_arg(args)?;
+            if let Some(point) = target {
+                if humanize.enabled() {
+                    let current = platform::mouse_position()?;
+                    let mut rng = humanize::rng_with_seed(&mut seed);
+                    let plan = humanize::plan_move(current, point, humanize, speed, &mut rng);
+                    humanize::ensure_total_cap(plan.total_ms)?;
+                    let sent =
+                        platform::mouse_move_path(&plan.points, &plan.delays_ms, &cancellable)?;
+                    if sent < plan.points.len() {
+                        // 取消也必须释放按钮，避免粘键。
+                        let was_tracked = session.clear_pressed(PressedKind::Button, button);
+                        platform::mouse_button(button, false)?;
+                        return Ok(ToolExecution::wrote(
+                            json!({
+                                "action": action,
+                                "button": button,
+                                "released": true,
+                                "was_tracked": was_tracked,
+                                "path_points": sent,
+                                "cancelled": true,
+                                "dispatch_state": "partial"
+                            }),
+                            DispatchState::Partial,
+                        ));
+                    }
+                } else {
+                    platform::mouse_move(point.0, point.1)?;
+                }
+            }
+            let was_tracked = session.clear_pressed(PressedKind::Button, button);
+            platform::mouse_button(button, false)?;
+            let actual = platform::mouse_position().unwrap_or((0, 0));
+            Ok(ToolExecution::wrote(
+                json!({
+                    "action": action,
+                    "button": button,
+                    "released": true,
+                    "was_tracked": was_tracked,
+                    "x": actual.0,
+                    "y": actual.1,
+                    "dispatch_state": "sent"
+                }),
+                DispatchState::Sent,
+            ))
         }
         _ => unreachable!(),
     }
-    Ok(ToolExecution::wrote(
+}
+
+/// 鼠标按钮参数解析（默认 left）。
+fn mouse_button_arg(args: &Value) -> Result<&str, ToolError> {
+    let button = args.get("button").and_then(Value::as_str).unwrap_or("left");
+    if !matches!(button, "left" | "right" | "middle") {
+        return Err(invalid("button must be left, right or middle"));
+    }
+    Ok(button)
+}
+
+/// 长序列被取消时的统一响应：如实报告已发送量。
+fn cancelled_mouse(
+    action: &str,
+    point: (i32, i32),
+    humanize: HumanizeMode,
+    seed: Option<u64>,
+    path_points: Option<usize>,
+) -> ToolExecution {
+    ToolExecution::wrote(
         json!({
             "action": action,
             "x": point.0,
             "y": point.1,
-            "dispatch_state": "sent"
+            "humanize": humanize.as_str(),
+            "seed": seed,
+            "path_points": path_points,
+            "cancelled": true,
+            "dispatch_state": "partial"
         }),
-        DispatchState::Sent,
-    ))
+        DispatchState::Partial,
+    )
 }
 
 /// 点击期望落在哪个窗口：显式 hwnd 优先，其次本次捕获的前台窗口。
@@ -421,7 +750,11 @@ fn occlusion_blocker(x: i32, y: i32, expected_hwnd: i64) -> Result<Option<Value>
     })))
 }
 
-fn mouse_drag(session: &Session, args: &Value) -> Result<ToolExecution, ToolError> {
+fn mouse_drag(
+    session: &Session,
+    args: &Value,
+    cancel: &CancelFlag,
+) -> Result<ToolExecution, ToolError> {
     let start = resolve_drag_point(
         session,
         args,
@@ -443,21 +776,87 @@ fn mouse_drag(session: &Session, args: &Value) -> Result<ToolExecution, ToolErro
         .and_then(Value::as_u64)
         .unwrap_or(250)
         .clamp(20, 5000);
-    platform::drag(start, end, duration)?;
+    let humanize = HumanizeMode::parse(args.get("humanize"))?;
+    let speed_arg = humanize::validate_speed(args.get("speed"))?;
+    let path_arg = args.get("path").and_then(Value::as_str);
+    if let Some(path) = path_arg {
+        if !matches!(path, "line" | "curve") {
+            return Err(invalid("path must be line or curve"));
+        }
+    }
+    let mut seed = humanize::validate_seed(args.get("seed"))?;
+    let enhanced = humanize.enabled() || speed_arg.is_some() || path_arg.is_some();
+    if !enhanced {
+        platform::drag(start, end, duration)?;
+        return Ok(ToolExecution::wrote(
+            json!({
+                "start": { "x": start.0, "y": start.1 },
+                "end": { "x": end.0, "y": end.1 },
+                "dispatch_state": "sent"
+            }),
+            DispatchState::Sent,
+        ));
+    }
+    let mut rng = humanize::rng_with_seed(&mut seed);
+    let distance = (((end.0 - start.0) as f64).powi(2) + ((end.1 - start.1) as f64).powi(2)).sqrt();
+    // 默认速度由 duration_ms 反推，保持与旧参数一致的节奏。
+    let speed = speed_arg.unwrap_or_else(|| {
+        if duration > 0 && distance >= 1.0 {
+            (distance / (duration as f64 / 1000.0)).clamp(humanize::SPEED_MIN, humanize::SPEED_MAX)
+        } else {
+            humanize::SPEED_DEFAULT
+        }
+    });
+    let curved = match path_arg {
+        Some("curve") => true,
+        Some("line") => false,
+        _ => humanize.enabled(),
+    };
+    let plan = humanize::plan_path(start, end, curved, humanize, speed, &mut rng);
+    humanize::ensure_total_cap(plan.total_ms)?;
+    let cancellable = || cancel.load(Ordering::Acquire);
+    platform::mouse_move(start.0, start.1)?;
+    // 冲突清理：左键仍处于按下时先释放，避免拖拽状态错乱。
+    if session.clear_pressed(PressedKind::Button, "left") {
+        let _ = platform::mouse_button("left", false);
+    }
+    platform::mouse_button("left", true)?;
+    let sent = match platform::mouse_move_path(&plan.points, &plan.delays_ms, &cancellable) {
+        Ok(sent) => sent,
+        Err(error) => {
+            let _ = platform::mouse_button("left", false);
+            return Err(error);
+        }
+    };
+    platform::mouse_button("left", false)?;
+    let cancelled = sent < plan.points.len();
     Ok(ToolExecution::wrote(
         json!({
             "start": { "x": start.0, "y": start.1 },
             "end": { "x": end.0, "y": end.1 },
-            "dispatch_state": "sent"
+            "humanize": humanize.as_str(),
+            "seed": seed,
+            "path": if curved { "curve" } else { "line" },
+            "speed": speed,
+            "path_points": sent,
+            "total_points": plan.points.len(),
+            "cancelled": cancelled,
+            "dispatch_state": if cancelled { "partial" } else { "sent" }
         }),
-        DispatchState::Sent,
+        if cancelled {
+            DispatchState::Partial
+        } else {
+            DispatchState::Sent
+        },
     ))
 }
 
-fn input(session: &Session, args: &Value) -> Result<ToolExecution, ToolError> {
+fn input(session: &Session, args: &Value, cancel: &CancelFlag) -> Result<ToolExecution, ToolError> {
     let mode = required_str(args, "mode")?;
-    if !matches!(mode, "type" | "hotkey") {
-        return Err(invalid("mode must be type or hotkey"));
+    if !matches!(mode, "type" | "hotkey" | "key" | "key_down" | "key_up") {
+        return Err(invalid(
+            "mode must be type, hotkey, key, key_down or key_up",
+        ));
     }
     let hwnd = match resolve_input_target(session, args) {
         Ok(hwnd) => hwnd,
@@ -473,11 +872,181 @@ fn input(session: &Session, args: &Value) -> Result<ToolExecution, ToolError> {
     if let Some(hwnd) = hwnd {
         target_hwnd = Some(ensure_foreground(hwnd)?);
     }
-    let text = args.get("text").and_then(Value::as_str).unwrap_or("");
-    let send = args.get("send").and_then(Value::as_str).unwrap_or("enter");
+    let humanize = HumanizeMode::parse(args.get("humanize"))?;
+    let mut seed = humanize::validate_seed(args.get("seed"))?;
+    match mode {
+        "type" => input_type(args, humanize, &mut seed, cancel, target_hwnd),
+        "hotkey" => input_hotkey(args, humanize, &mut seed, cancel, target_hwnd),
+        _ => input_key(
+            session,
+            mode,
+            args,
+            humanize,
+            &mut seed,
+            cancel,
+            target_hwnd,
+        ),
+    }
+}
+
+/// `send` 参数：type 默认 enter，其余模式默认 none。
+fn send_arg<'a>(args: &'a Value, default: &'a str) -> Result<&'a str, ToolError> {
+    let send = args.get("send").and_then(Value::as_str).unwrap_or(default);
     if !matches!(send, "enter" | "ctrl+enter" | "tab" | "none") {
         return Err(invalid("send must be enter, ctrl+enter, tab or none"));
     }
+    Ok(send)
+}
+
+/// `delay_ms`：固定值或 `[min, max]` 范围（毫秒）。
+fn parse_delay_ms(value: Option<&Value>) -> Result<Option<(u64, u64)>, ToolError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let (min, max) = if let Some(fixed) = value.as_u64() {
+        (fixed, fixed)
+    } else if let Some(range) = value.as_array() {
+        if range.len() != 2 {
+            return Err(invalid("delay_ms range must be [min, max]"));
+        }
+        let min = range[0]
+            .as_u64()
+            .ok_or_else(|| invalid("delay_ms values must be unsigned integers"))?;
+        let max = range[1]
+            .as_u64()
+            .ok_or_else(|| invalid("delay_ms values must be unsigned integers"))?;
+        (min, max)
+    } else {
+        return Err(invalid("delay_ms must be a number or [min, max]"));
+    };
+    if min > max {
+        return Err(invalid("delay_ms min must not exceed max"));
+    }
+    if max > humanize::DELAY_MS_MAX {
+        return Err(invalid(format!(
+            "delay_ms must not exceed {}",
+            humanize::DELAY_MS_MAX
+        )));
+    }
+    Ok(Some((min, max)))
+}
+
+/// 执行尾随按键；失败时文本已经输入，必须报 Partial。
+fn send_trailing_key(send: &str) -> Result<(), ToolError> {
+    if send == "none" {
+        return Ok(());
+    }
+    let result = match send {
+        "enter" => platform::hotkey(&["enter"]),
+        "ctrl+enter" => platform::hotkey(&["ctrl", "enter"]),
+        "tab" => platform::hotkey(&["tab"]),
+        _ => Ok(()),
+    };
+    result.map_err(|error| {
+        ToolError::new(
+            ErrorCode::DispatchUnknown,
+            format!("input was dispatched but the trailing key failed: {error}"),
+        )
+        .details(json!({ "dispatch_state": DispatchState::Partial }))
+        .retryable(false)
+    })
+}
+
+fn input_type(
+    args: &Value,
+    humanize: HumanizeMode,
+    seed: &mut Option<u64>,
+    cancel: &CancelFlag,
+    target_hwnd: Option<i64>,
+) -> Result<ToolExecution, ToolError> {
+    let text = args.get("text").and_then(Value::as_str).unwrap_or("");
+    if text.is_empty() {
+        return Err(invalid("text is required for mode=type"));
+    }
+    let send = send_arg(args, "enter")?;
+    let explicit = parse_delay_ms(args.get("delay_ms"))?;
+    if !humanize.enabled() && explicit.is_none() {
+        platform::type_text(text).map_err(|error| dispatch_error(error, DispatchState::Unknown))?;
+        send_trailing_key(send)?;
+        return Ok(ToolExecution::wrote(
+            json!({ "mode": "type", "target_hwnd": target_hwnd, "dispatch_state": "sent" }),
+            DispatchState::Sent,
+        ));
+    }
+    let mut rng = humanize::rng_with_seed(seed);
+    let plan = humanize::plan_typing(text, humanize, explicit, &mut rng);
+    humanize::ensure_total_cap(plan.total_ms)?;
+    let cancellable = || cancel.load(Ordering::Acquire);
+    let mut dispatched = 0usize;
+    for (index, ch) in plan.chars.iter().enumerate() {
+        if cancel.load(Ordering::Acquire) {
+            break;
+        }
+        let mut buffer = [0u8; 4];
+        let single = ch.encode_utf8(&mut buffer);
+        platform::type_text(single)
+            .map_err(|error| dispatch_error(error, DispatchState::Unknown))?;
+        dispatched += 1;
+        if let Some(delay) = plan.delays_ms.get(index) {
+            if *delay > 0 && !humanize::sleep_cancellable(*delay, &cancellable) {
+                break;
+            }
+        }
+    }
+    let total_chars = plan.chars.len();
+    if dispatched < total_chars {
+        return Ok(ToolExecution::wrote(
+            json!({
+                "mode": "type",
+                "target_hwnd": target_hwnd,
+                "humanize": humanize.as_str(),
+                "seed": seed,
+                "dispatched_chars": dispatched,
+                "total_chars": total_chars,
+                "cancelled": true,
+                "dispatch_state": "partial"
+            }),
+            DispatchState::Partial,
+        ));
+    }
+    if cancel.load(Ordering::Acquire) {
+        return Ok(ToolExecution::wrote(
+            json!({
+                "mode": "type",
+                "target_hwnd": target_hwnd,
+                "humanize": humanize.as_str(),
+                "seed": seed,
+                "dispatched_chars": dispatched,
+                "total_chars": total_chars,
+                "cancelled": true,
+                "dispatch_state": "partial"
+            }),
+            DispatchState::Partial,
+        ));
+    }
+    send_trailing_key(send)?;
+    Ok(ToolExecution::wrote(
+        json!({
+            "mode": "type",
+            "target_hwnd": target_hwnd,
+            "humanize": humanize.as_str(),
+            "seed": seed,
+            "dispatched_chars": dispatched,
+            "total_chars": total_chars,
+            "delay_total_ms": plan.total_ms,
+            "dispatch_state": "sent"
+        }),
+        DispatchState::Sent,
+    ))
+}
+
+fn input_hotkey(
+    args: &Value,
+    humanize: HumanizeMode,
+    seed: &mut Option<u64>,
+    cancel: &CancelFlag,
+    target_hwnd: Option<i64>,
+) -> Result<ToolExecution, ToolError> {
     let keys = args
         .get("keys")
         .and_then(Value::as_array)
@@ -493,44 +1062,196 @@ fn input(session: &Session, args: &Value) -> Result<ToolExecution, ToolError> {
                 .collect::<Result<Vec<_>, _>>()
         })
         .transpose()?;
-    if mode == "type" && text.is_empty() {
-        return Err(invalid("text is required for mode=type"));
+    let keys = keys.ok_or_else(|| invalid("keys are required for mode=hotkey"))?;
+    if keys.is_empty() {
+        return Err(invalid("keys must not be empty"));
     }
-    if mode == "hotkey" {
-        let keys = keys.ok_or_else(|| invalid("keys are required for mode=hotkey"))?;
-        if keys.is_empty() {
-            return Err(invalid("keys must not be empty"));
+    for key in &keys {
+        if !platform::is_valid_key(key) {
+            return Err(invalid(format!("unknown key: {key}")));
         }
-        for key in &keys {
-            if !platform::is_valid_key(key) {
-                return Err(invalid(format!("unknown key: {key}")));
-            }
-        }
+    }
+    let hold_arg = humanize::validate_hold_ms(args.get("hold_ms"))?;
+    let repeat = humanize::validate_repeat(args.get("repeat"))?.unwrap_or(1);
+    let interval_arg = humanize::validate_interval_ms(args.get("interval_ms"))?;
+    if hold_arg.is_none() && !humanize.enabled() && repeat == 1 {
         let refs: Vec<&str> = keys.iter().map(String::as_str).collect();
         platform::hotkey(&refs).map_err(|error| dispatch_error(error, DispatchState::Unknown))?;
-    } else {
-        platform::type_text(text).map_err(|error| dispatch_error(error, DispatchState::Unknown))?;
-        if send != "none" {
-            let result = match send {
-                "enter" => platform::hotkey(&["enter"]),
-                "ctrl+enter" => platform::hotkey(&["ctrl", "enter"]),
-                "tab" => platform::hotkey(&["tab"]),
-                _ => Ok(()),
-            };
-            if let Err(error) = result {
-                return Err(ToolError::new(
-                    ErrorCode::DispatchUnknown,
-                    format!("text was typed but the trailing key failed: {error}"),
-                )
-                .details(json!({ "dispatch_state": DispatchState::Partial }))
-                .retryable(false));
-            }
+        return Ok(ToolExecution::wrote(
+            json!({ "mode": "hotkey", "target_hwnd": target_hwnd, "dispatch_state": "sent" }),
+            DispatchState::Sent,
+        ));
+    }
+    let mut rng = humanize::rng_with_seed(seed);
+    let hold = hold_arg.unwrap_or_else(|| humanize::sample_key_hold_ms(humanize, &mut rng));
+    let interval = interval_arg.unwrap_or(120);
+    let cancellable = || cancel.load(Ordering::Acquire);
+    let refs: Vec<&str> = keys.iter().map(String::as_str).collect();
+    let mut dispatched: u64 = 0;
+    for index in 0..repeat {
+        if cancel.load(Ordering::Acquire) {
+            break;
+        }
+        let completed = platform::hotkey_hold(&refs, hold, &cancellable)
+            .map_err(|error| dispatch_error(error, DispatchState::Unknown))?;
+        dispatched += 1;
+        if !completed {
+            break;
+        }
+        if index + 1 < repeat && !humanize::sleep_cancellable(interval, &cancellable) {
+            break;
         }
     }
+    let cancelled = dispatched < repeat;
     Ok(ToolExecution::wrote(
-        json!({ "mode": mode, "target_hwnd": target_hwnd, "dispatch_state": "sent" }),
-        DispatchState::Sent,
+        json!({
+            "mode": "hotkey",
+            "target_hwnd": target_hwnd,
+            "humanize": humanize.as_str(),
+            "seed": seed,
+            "hold_ms": hold,
+            "repeat": repeat,
+            "interval_ms": interval,
+            "dispatched": dispatched,
+            "cancelled": cancelled,
+            "dispatch_state": if cancelled { "partial" } else { "sent" }
+        }),
+        if cancelled {
+            DispatchState::Partial
+        } else {
+            DispatchState::Sent
+        },
     ))
+}
+
+/// key 的稳定标识：优先 scancode（含扩展位），否则 vk。
+fn key_spec_id(spec: &platform::KeySpec) -> String {
+    if let Some(scan) = spec.scan {
+        let raw = if spec.extended {
+            0xE000u32 | u32::from(scan)
+        } else {
+            u32::from(scan)
+        };
+        format!("scan:0x{raw:X}")
+    } else {
+        format!("vk:{}", spec.vk.unwrap_or_default())
+    }
+}
+
+fn input_key(
+    session: &Session,
+    mode: &str,
+    args: &Value,
+    humanize: HumanizeMode,
+    seed: &mut Option<u64>,
+    cancel: &CancelFlag,
+    target_hwnd: Option<i64>,
+) -> Result<ToolExecution, ToolError> {
+    let spec_text = required_str(args, "key")?;
+    let spec = platform::parse_key_spec(spec_text)?;
+    let force_extended = args
+        .get("extended")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let hold_arg = humanize::validate_hold_ms(args.get("hold_ms"))?;
+    let repeat_arg = humanize::validate_repeat(args.get("repeat"))?;
+    let interval_arg = humanize::validate_interval_ms(args.get("interval_ms"))?;
+    let send = send_arg(args, "none")?;
+    let cancellable = || cancel.load(Ordering::Acquire);
+    if mode == "key_down" || mode == "key_up" {
+        if hold_arg.is_some() || repeat_arg.is_some() || interval_arg.is_some() {
+            return Err(invalid(
+                "hold_ms, repeat and interval_ms apply to mode=key only",
+            ));
+        }
+        let id = key_spec_id(&spec);
+        if mode == "key_down" {
+            let cleaned = session.clear_pressed(PressedKind::Key, &id);
+            if cleaned {
+                let _ = platform::send_key(&spec, true, force_extended);
+            }
+            platform::send_key(&spec, false, force_extended)
+                .map_err(|error| dispatch_error(error, DispatchState::Unknown))?;
+            session.mark_pressed(PressedKind::Key, &id);
+            Ok(ToolExecution::wrote(
+                json!({
+                    "mode": mode,
+                    "target_hwnd": target_hwnd,
+                    "key": spec_text,
+                    "key_mode": spec.source,
+                    "pressed": true,
+                    "cleaned_pressed": cleaned,
+                    "dispatch_state": "sent"
+                }),
+                DispatchState::Sent,
+            ))
+        } else {
+            let was_tracked = session.clear_pressed(PressedKind::Key, &id);
+            platform::send_key(&spec, true, force_extended)
+                .map_err(|error| dispatch_error(error, DispatchState::Unknown))?;
+            Ok(ToolExecution::wrote(
+                json!({
+                    "mode": mode,
+                    "target_hwnd": target_hwnd,
+                    "key": spec_text,
+                    "key_mode": spec.source,
+                    "released": true,
+                    "was_tracked": was_tracked,
+                    "dispatch_state": "sent"
+                }),
+                DispatchState::Sent,
+            ))
+        }
+    } else {
+        let repeat = repeat_arg.unwrap_or(1);
+        let mut rng = humanize::rng_with_seed(seed);
+        let hold = hold_arg.unwrap_or_else(|| humanize::sample_key_hold_ms(humanize, &mut rng));
+        let interval = interval_arg.unwrap_or(120);
+        let mut dispatched: u64 = 0;
+        for index in 0..repeat {
+            if cancel.load(Ordering::Acquire) {
+                break;
+            }
+            platform::send_key(&spec, false, force_extended)
+                .map_err(|error| dispatch_error(error, DispatchState::Unknown))?;
+            if !humanize::sleep_cancellable(hold, &cancellable) {
+                let _ = platform::send_key(&spec, true, force_extended);
+                dispatched += 1;
+                break;
+            }
+            platform::send_key(&spec, true, force_extended)
+                .map_err(|error| dispatch_error(error, DispatchState::Unknown))?;
+            dispatched += 1;
+            if index + 1 < repeat && !humanize::sleep_cancellable(interval, &cancellable) {
+                break;
+            }
+        }
+        let cancelled = dispatched < repeat;
+        if !cancelled {
+            send_trailing_key(send)?;
+        }
+        Ok(ToolExecution::wrote(
+            json!({
+                "mode": mode,
+                "target_hwnd": target_hwnd,
+                "key": spec_text,
+                "key_mode": spec.source,
+                "humanize": humanize.as_str(),
+                "seed": seed,
+                "hold_ms": hold,
+                "repeat": repeat,
+                "interval_ms": interval,
+                "dispatched": dispatched,
+                "cancelled": cancelled,
+                "dispatch_state": if cancelled { "partial" } else { "sent" }
+            }),
+            if cancelled {
+                DispatchState::Partial
+            } else {
+                DispatchState::Sent
+            },
+        ))
+    }
 }
 
 /// 目标窗口缺失时，用 catalog 引用重启应用并重试定位；只接受
@@ -1899,6 +2620,23 @@ fn resolve_element(
     capture_id: &str,
     element_id: u32,
 ) -> Result<(i32, i32), ToolError> {
+    resolve_element_location(session, capture_id, element_id)?
+        .screen_center
+        .ok_or_else(|| {
+            ToolError::new(
+                ErrorCode::StaleCapture,
+                "element has no registered screen center",
+            )
+            .retryable(true)
+        })
+}
+
+/// 解析元素绑定的完整位置信息（中心点 + 外接矩形），供"落点抖动"使用。
+fn resolve_element_location(
+    session: &Session,
+    capture_id: &str,
+    element_id: u32,
+) -> Result<ElementLocation, ToolError> {
     let capture = session.capture(capture_id)?;
     if let Some(foreground) = capture.foreground_hwnd {
         if platform::foreground_hwnd().ok().flatten() != Some(foreground) {
@@ -1916,13 +2654,34 @@ fn resolve_element(
         )
         .retryable(true)
     })?;
-    element.screen_center.ok_or_else(|| {
-        ToolError::new(
-            ErrorCode::StaleCapture,
-            "element has no registered screen center",
-        )
-        .retryable(true)
-    })
+    Ok(element.clone())
+}
+
+/// 元素内随机落点（内缩 2px）；元素过小时退回中心点。
+fn jitter_in_rect(rng: &mut Pcg32, rect: &ScreenRect, fallback: (i32, i32)) -> (i32, i32) {
+    let min_x = rect.x.saturating_add(2);
+    let max_x = rect.x.saturating_add(rect.width as i32).saturating_sub(3);
+    let min_y = rect.y.saturating_add(2);
+    let max_y = rect.y.saturating_add(rect.height as i32).saturating_sub(3);
+    if max_x < min_x || max_y < min_y {
+        return fallback;
+    }
+    (
+        rng.range_i64(min_x as i64, max_x as i64) as i32,
+        rng.range_i64(min_y as i64, max_y as i64) as i32,
+    )
+}
+
+/// 坐标定位的落点抖动：以点为 ±jitter_px 均匀偏移。
+fn jitter_around(rng: &mut Pcg32, x: i32, y: i32, jitter_px: u64) -> (i32, i32) {
+    if jitter_px == 0 {
+        return (x, y);
+    }
+    let jitter = jitter_px as i64;
+    (
+        x.saturating_add(rng.range_i64(-jitter, jitter) as i32),
+        y.saturating_add(rng.range_i64(-jitter, jitter) as i32),
+    )
 }
 
 fn resolve_drag_point(
@@ -2173,4 +2932,97 @@ fn required_u32(args: &Value, key: &str) -> Result<u32, ToolError> {
 
 fn invalid(message: impl Into<String>) -> ToolError {
     ToolError::new(ErrorCode::InvalidParams, message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn parses_delay_ms_fixed_range_and_rejects_invalid() {
+        assert_eq!(parse_delay_ms(Some(&json!(60))).unwrap(), Some((60, 60)));
+        assert_eq!(
+            parse_delay_ms(Some(&json!([30, 90]))).unwrap(),
+            Some((30, 90))
+        );
+        assert!(parse_delay_ms(None).unwrap().is_none());
+        assert!(parse_delay_ms(Some(&json!([90, 30]))).is_err());
+        assert!(parse_delay_ms(Some(&json!([1, 2, 3]))).is_err());
+        assert!(parse_delay_ms(Some(&json!("60"))).is_err());
+        // 超上限必须拒绝并附范围（validation message 含上限值）。
+        let error = parse_delay_ms(Some(&json!([1, 20_000]))).unwrap_err();
+        assert!(error.message.contains("10000"), "{}", error.message);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn key_spec_id_prefers_scancode_with_extended_bit() {
+        let spec = platform::parse_key_spec("enter").unwrap();
+        assert!(key_spec_id(&spec).starts_with("vk:"));
+        let spec = platform::parse_key_spec("scan:0x1E").unwrap();
+        assert_eq!(key_spec_id(&spec), "scan:0x1E");
+        let spec = platform::parse_key_spec("scan:0xE01D").unwrap();
+        assert_eq!(key_spec_id(&spec), "scan:0xE01D");
+        let spec = platform::parse_key_spec("vk:0x41").unwrap();
+        assert_eq!(key_spec_id(&spec), "vk:65");
+    }
+
+    #[test]
+    fn jitter_stays_inside_rect_with_2px_inset() {
+        let rect = ScreenRect {
+            x: 100,
+            y: 200,
+            width: 40,
+            height: 20,
+        };
+        let mut rng = humanize::Pcg32::new(7);
+        for _ in 0..64 {
+            let (x, y) = jitter_in_rect(&mut rng, &rect, (120, 210));
+            assert!((102..=137).contains(&x), "x={x}");
+            assert!((202..=217).contains(&y), "y={y}");
+        }
+    }
+
+    #[test]
+    fn jitter_falls_back_for_tiny_rects() {
+        let rect = ScreenRect {
+            x: 10,
+            y: 10,
+            width: 3,
+            height: 3,
+        };
+        let mut rng = humanize::Pcg32::new(9);
+        assert_eq!(jitter_in_rect(&mut rng, &rect, (11, 11)), (11, 11));
+    }
+
+    #[test]
+    fn jitter_around_is_bounded_and_seed_deterministic() {
+        let mut left = humanize::Pcg32::new(42);
+        let mut right = humanize::Pcg32::new(42);
+        let mut first = Vec::new();
+        let mut second = Vec::new();
+        for _ in 0..16 {
+            first.push(jitter_around(&mut left, 500, 400, 5));
+            second.push(jitter_around(&mut right, 500, 400, 5));
+        }
+        assert_eq!(first, second);
+        for (x, y) in first {
+            assert!((495..=505).contains(&x));
+            assert!((395..=405).contains(&y));
+        }
+        // jitter_px=0 时原样返回。
+        let mut rng = humanize::Pcg32::new(1);
+        assert_eq!(jitter_around(&mut rng, 7, 8, 0), (7, 8));
+    }
+
+    #[test]
+    fn mouse_button_arg_defaults_and_validates() {
+        assert_eq!(mouse_button_arg(&json!({})).unwrap(), "left");
+        assert_eq!(
+            mouse_button_arg(&json!({"button": "right"})).unwrap(),
+            "right"
+        );
+        assert!(mouse_button_arg(&json!({"button": "side"})).is_err());
+    }
 }

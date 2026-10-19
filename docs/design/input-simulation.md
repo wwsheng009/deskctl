@@ -2,7 +2,7 @@
 
 - 文档版本：0.1
 - 日期：2026-10-19
-- 状态：Draft（待评审）
+- 状态：已实施（I1，2026-10-19；实现见 `crates/deskctl-core/src/humanize.rs`、`tools/mod.rs`、`platform/windows/input.rs`；真机回归清单见 [../test-plan.md](../test-plan.md) §7.2）
 - 关联：[README.md](README.md)、[record-replay.md](record-replay.md)、[audit-history.md](audit-history.md)、[../acceptance-criteria.md](../acceptance-criteria.md)
 - 目标：在**不改变工具数量（36）**的前提下，为 `desktop_mouse` / `desktop_mouse_drag` / `desktop_input` 增加更通俗的操作子命令与更拟人的行为；补上"键盘码（VK/扫描码）"与"长按/按住"能力。
 

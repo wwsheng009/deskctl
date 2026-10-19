@@ -30,6 +30,21 @@
 - 鼠标点击在携带 `hwnd` 或 capture 引用时默认做遮挡检测：目标点被其它进程窗口覆盖会
   返回 `target_unavailable` + `occluded_by`（`allow_occluded=true` 可跳过；任务栏按钮
   不视为遮挡）。遮挡检测是"防误点"，不是安全边界。
+- 输入类工具（`desktop_mouse`/`desktop_mouse_drag`/`desktop_input`）经 Input 资源门串行，
+  拟人长序列（如 `path_points` 上千的移动、大批量拟人打字）会拉长门的持有时间，多 Agent
+  并发输入时互相等待；长序列建议合并为单次调用并保留取消通道（取消每 16 个轨迹点/每个
+  按键间隔检查一次，目标 ≤1s 生效）。
+- `humanize` 默认 `off`（行为与旧版完全一致）；开启后所有随机采样来自 PCG32(`seed`)，
+  响应回传 `seed` 以复现；`path_points` 为实际发送点数，取消时如实返回已发送量。
+- SendInput 在少数游戏/反作弊环境会被拦截，本工具不承诺绕过；对只认扫描码的经典应用/
+  远程桌面，可用 `key: "scan:0x1E"`（扩展键 `scan:0xE01D` 或 `extended:true`）通道。
+- `down` / `key_down` 未配对释放时：同一会话内下一次冲突调用或会话关闭时会尽力自动
+  释放（防粘键，`desktop_session` 摘要含 `pressed_buttons`/`pressed_keys`）；daemon
+  进程退出由系统清理键状态，跨会话不做全局清理。
+- IME 组合输入（中文选字等）建议使用 `mode=type`（UNICODE 注入，不依赖键盘布局）；
+  `mode=key` 面向功能键/快捷键/游戏场景，不承诺与输入法组合行为一致。
+- `move_relative` 以物理像素为基准（多显示器虚拟桌面内可跨屏）；实现使用多段绝对坐标
+  模拟，不使用受鼠标加速度影响的 `MOUSEEVENTF_MOVE` 相对事件。
 - 语义动作 `delivery_mode` 默认 `auto`（后台优先、失败回退前台）；`restore_foreground=true`
   时动作后尽力还原原前台窗口，受 Windows 前台锁影响可能失败，结果字段如实返回。
 - 目标窗口被模态对话框（原生 Save/Open 等）禁用时，`desktop_input` 与鼠标置前会自动

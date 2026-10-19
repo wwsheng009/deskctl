@@ -14,8 +14,9 @@ mod imp {
     pub use super::windows::clipboard::{clean as clipboard_clean, write_text as clipboard_write};
     pub use super::windows::dpi::{diagnostics as dpi_diagnostics, init_process_dpi_awareness};
     pub use super::windows::input::{
-        drag, hotkey, is_valid_key, key_to_vk, mouse_click, mouse_move, mouse_position,
-        mouse_scroll, type_text,
+        double_click_time_ms, drag, hotkey, hotkey_hold, is_valid_key, key_to_vk, mouse_button,
+        mouse_click, mouse_move, mouse_move_absolute, mouse_move_path, mouse_position,
+        mouse_scroll, parse_key_spec, send_key, type_text, virtual_desktop_bounds, KeySpec,
     };
     pub use super::windows::uia::{
         observe_window, perform_action, ActionOptions, UiNode, UiaAction,
@@ -120,6 +121,49 @@ mod imp {
         Err(unsupported())
     }
     pub fn mouse_scroll(_direction: &str, _amount: u32) -> Result<(), ToolError> {
+        Err(unsupported())
+    }
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct KeySpec {
+        pub vk: Option<u16>,
+        pub scan: Option<u16>,
+        pub extended: bool,
+        pub source: &'static str,
+    }
+    pub fn parse_key_spec(_spec: &str) -> Result<KeySpec, ToolError> {
+        Err(unsupported())
+    }
+    pub fn send_key(
+        _spec: &KeySpec,
+        _key_up: bool,
+        _force_extended: bool,
+    ) -> Result<(), ToolError> {
+        Err(unsupported())
+    }
+    pub fn mouse_button(_button: &str, _down: bool) -> Result<(), ToolError> {
+        Err(unsupported())
+    }
+    pub fn mouse_move_absolute(_x: i32, _y: i32) -> Result<(), ToolError> {
+        Err(unsupported())
+    }
+    pub fn mouse_move_path(
+        _points: &[(i32, i32)],
+        _delays_ms: &[u64],
+        _cancel: &dyn Fn() -> bool,
+    ) -> Result<usize, ToolError> {
+        Err(unsupported())
+    }
+    pub fn virtual_desktop_bounds() -> Result<(i32, i32, i32, i32), ToolError> {
+        Err(unsupported())
+    }
+    pub fn double_click_time_ms() -> u64 {
+        500
+    }
+    pub fn hotkey_hold(
+        _keys: &[&str],
+        _hold_ms: u64,
+        _cancel: &dyn Fn() -> bool,
+    ) -> Result<bool, ToolError> {
         Err(unsupported())
     }
     pub fn drag(_start: (i32, i32), _end: (i32, i32), _duration_ms: u64) -> Result<(), ToolError> {

@@ -1,6 +1,6 @@
 {
   "name": "desktop_mouse_drag",
-  "description": "Drag the mouse from a start point to an end point.",
+  "description": "Drag the mouse from a start point to an end point, optionally with a human-like trajectory.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -29,6 +29,39 @@
       },
       "end_y": {
         "type": "integer"
+      },
+      "duration_ms": {
+        "type": "integer",
+        "minimum": 20,
+        "maximum": 5000,
+        "default": 250
+      },
+      "humanize": {
+        "type": "string",
+        "enum": [
+          "off",
+          "light",
+          "natural"
+        ],
+        "default": "off"
+      },
+      "speed": {
+        "type": "number",
+        "minimum": 200,
+        "maximum": 5000
+      },
+      "seed": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 18446744073709551615
+      },
+      "path": {
+        "type": "string",
+        "enum": [
+          "line",
+          "curve"
+        ],
+        "description": "Trajectory shape; line keeps legacy behavior"
       }
     },
     "required": [],

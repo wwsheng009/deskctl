@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -13,6 +13,19 @@ pub struct ScreenRect {
     pub y: i32,
     pub width: u32,
     pub height: u32,
+}
+
+/// 防粘键跟踪的两种实体：鼠标按钮与键盘按键（按规范化 spec 存储）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PressedKind {
+    Button,
+    Key,
+}
+
+#[derive(Debug, Default)]
+struct PressedState {
+    buttons: BTreeSet<String>,
+    keys: BTreeSet<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -121,6 +134,7 @@ pub struct Session {
     capture_cache_limit: usize,
     observation_ttl: Duration,
     last_used: Mutex<Instant>,
+    pressed: Mutex<PressedState>,
     closed: AtomicBool,
 }
 
@@ -143,6 +157,7 @@ impl Session {
             capture_cache_limit: capture_cache_limit.max(1),
             observation_ttl,
             last_used: Mutex::new(Instant::now()),
+            pressed: Mutex::new(PressedState::default()),
             closed: AtomicBool::new(false),
         }
     }
@@ -153,6 +168,16 @@ impl Session {
 
     pub fn close(&self) {
         self.closed.store(true, Ordering::Release);
+        // 防粘键兜底：会话关闭时释放仍未配对的鼠标按钮/键盘按键（尽力而为）。
+        let (buttons, keys) = self.take_pressed();
+        for button in buttons {
+            let _ = crate::platform::mouse_button(&button, false);
+        }
+        for key in keys {
+            if let Ok(spec) = crate::platform::parse_key_spec(&key) {
+                let _ = crate::platform::send_key(&spec, true, false);
+            }
+        }
         if let Ok(mut captures) = self.captures.lock() {
             let temporary = std::env::temp_dir();
             for capture in captures.values() {
@@ -188,6 +213,51 @@ impl Session {
             .unwrap_or_else(|_| Instant::now())
     }
 
+    /// 记录一个"已按下"的按钮/按键；返回 `true` 表示此前已按下（冲突调用，
+    /// 调用方应先释放再重新按下，避免状态错乱）。
+    pub fn mark_pressed(&self, kind: PressedKind, id: &str) -> bool {
+        let Ok(mut pressed) = self.pressed.lock() else {
+            return false;
+        };
+        let set = match kind {
+            PressedKind::Button => &mut pressed.buttons,
+            PressedKind::Key => &mut pressed.keys,
+        };
+        !set.insert(id.to_string())
+    }
+
+    /// 清除"已按下"记录；返回 `true` 表示此前确实处于按下状态。
+    pub fn clear_pressed(&self, kind: PressedKind, id: &str) -> bool {
+        let Ok(mut pressed) = self.pressed.lock() else {
+            return false;
+        };
+        let set = match kind {
+            PressedKind::Button => &mut pressed.buttons,
+            PressedKind::Key => &mut pressed.keys,
+        };
+        set.remove(id)
+    }
+
+    pub fn pressed_ids(&self, kind: PressedKind) -> Vec<String> {
+        let Ok(pressed) = self.pressed.lock() else {
+            return Vec::new();
+        };
+        let set = match kind {
+            PressedKind::Button => &pressed.buttons,
+            PressedKind::Key => &pressed.keys,
+        };
+        set.iter().cloned().collect()
+    }
+
+    fn take_pressed(&self) -> (Vec<String>, Vec<String>) {
+        let Ok(mut pressed) = self.pressed.lock() else {
+            return (Vec::new(), Vec::new());
+        };
+        let buttons = std::mem::take(&mut pressed.buttons).into_iter().collect();
+        let keys = std::mem::take(&mut pressed.keys).into_iter().collect();
+        (buttons, keys)
+    }
+
     pub fn summary(&self) -> Value {
         let captures = self.captures.lock().map(|value| value.len()).unwrap_or(0);
         let targets = self.targets.lock().map(|value| value.len()).unwrap_or(0);
@@ -196,6 +266,8 @@ impl Session {
             .lock()
             .ok()
             .and_then(|value| value.as_ref().map(|observation| observation.token.clone()));
+        let pressed_buttons = self.pressed_ids(PressedKind::Button).len();
+        let pressed_keys = self.pressed_ids(PressedKind::Key).len();
         json!({
             "session_id": self.id,
             "profile": self.profile,
@@ -204,6 +276,8 @@ impl Session {
             "captures": captures,
             "targets": targets,
             "observation_token": observation,
+            "pressed_buttons": pressed_buttons,
+            "pressed_keys": pressed_keys,
             "last_used_ms_ago": self.last_used().elapsed().as_millis() as u64
         })
     }

@@ -6,6 +6,7 @@ pub mod config;
 pub mod doctor;
 pub mod docx;
 mod engine;
+pub mod humanize;
 pub mod kv;
 pub mod models;
 pub mod platform;

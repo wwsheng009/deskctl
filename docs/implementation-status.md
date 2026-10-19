@@ -1,6 +1,6 @@
 # 实施状态
 
-- 更新日期：2026-10-18
+- 更新日期：2026-10-19
 - 对应计划：[implementation-plan.md](implementation-plan.md)
 - 当前版本：0.1.0（Windows 首个可运行版本）
 
@@ -17,6 +17,7 @@
 | M6 Windows UIA 语义工具 | 部分完成 | 观察/候选/执行/验证、扩展动作（set_checked/scroll/scroll_into_view/set_range_value）、内联验证与稳定采样、树分页、catalog 受限启动均可用；agent_step 未实现 |
 | M7 Skills 与 profiles | 完成 | 5 个 skills、profile 过滤、契约导出 |
 | M8 打包与发布 | 部分完成 | 运行时/模型获取、哈希校验、安装脚本与 Inno Setup 模板完成；性能基线与安全/会话矩阵（12/12，含输入串行与公平性）已实测（`scripts/perf-baseline.ps1`、`scripts/security-check.ps1`）；干净机安装、代码签名与 Windows 10 回归待发布流水线 |
+| I1 输入模拟增强 | 完成（待真机回归） | `desktop_mouse` 新增 `move_relative`/`down`/`up` 与 `hold_ms`/`jitter_px`，`desktop_mouse_drag` 支持 `path`/`speed`/`humanize`，`desktop_input` 新增 `key`/`key_down`/`key_up`（名字/VK/扫描码、长按与重复）与拟人打字；PCG32 轨迹/节奏采样（`humanize` 默认 off，seed 可复现）；工具数保持 36；单测覆盖轨迹/键码/限额；真机回归清单见 test-plan §7.2 |
 
 ## 2. 已验证能力
 
@@ -100,9 +101,9 @@
 
 ```text
 deskctl-cli:      13 passed（cli_contract 3、mcp_smoke 3、skills_contract 1、tool_contract 6）
-deskctl-core:     43 passed（lib 37、path_policy 2、session_isolation 4）
+deskctl-core:     61 passed（lib 55、path_policy 2、session_isolation 4）
 deskctl-protocol:  3 passed
-合计:             59 passed, 0 failed
+合计:             77 passed, 0 failed
 ```
 
 `cargo fmt --all -- --check` 与 `cargo clippy --workspace --all-targets -- -D warnings` 均无告警
@@ -128,6 +129,11 @@ deskctl-protocol:  3 passed
 - docx 包结构（[Content_Types]/rels/document/media）与 XML 转义（docx 单测）
 - 办公三件套往返：docx 段落/表格/图片与页眉/页脚/页码（`{PAGE}` 回读）、xlsx 值类型/样式/
   列宽/冻结/数字格式与 `range` 过滤、pptx 标题/要点/图片页与版式校验（docx/xlsx/pptx 单测）
+- I1 输入模拟：PCG32 确定性（同 seed 序列一致）、轨迹采样（非直线/点数上限/末端减速）、
+  打字延迟范围与固定值、参数校验与限额、可取消睡眠（humanize 单测）
+- I1 工具层：`delay_ms` 固定/范围解析与上限拒绝、键码标识（vk/scan/扩展位）、
+  落点抖动边界（元素内缩 2px、微元素回退中心、±px 边界与 seed 确定性）、按钮参数校验
+  （tools 单测）
 
 ## 4. 运行时资源
 

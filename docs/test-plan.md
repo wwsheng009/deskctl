@@ -189,6 +189,24 @@ tests/fixtures/
 - 目标 locator 失效
 - 两个 session 同时输入（验证串行）
 
+**I1 输入模拟增强回归（AC-MOUSE-012..014、AC-INPUT-009..012）**：
+
+- `move_relative`：dx/dy 物理像素偏移；多显示器虚拟桌面下跨屏（起点/终点位移可测）。
+- `down` → 多次 `move` → `up`：完成一次拖选；右键长按菜单；`down` 未配对 `up` 时在下一次
+  冲突调用或会话关闭被清理（无粘键，`pressed_buttons`/`pressed_keys` 会话摘要可查）。
+- 拟人轨迹（`humanize`）：同 `seed` + 同参数两次运行点列逐点一致（单测已覆盖）；
+  实测轨迹非直线、时长与 `speed` 偏差 ≤20%；`path_points` 回传与实际发送一致。
+- 点击拟人：`hold_ms` 生效（down/up 时差可测）；`jitter_px>0` 落点在目标元素内且距边缘
+  ≥2px；`double_click` 间隔受系统双击时间约束。
+- 键码三写法：`"enter"` / `"vk:0x41"` / `"scan:0x1E"`（含 `extended`）；非法写法返回
+  `invalid_params` 并列出示例；`scan` 模式在记事本与远程桌面/经典应用各验证一例。
+- 长按与重复：`key_down` → `key_up` 期间键保持按下（目标应用可证）；`repeat`+`interval_ms`
+  按序发送且可取消；`hotkey` 的 `hold_ms` 生效。
+- 拟人打字：逐字延迟落在配置范围（统计断言）；同 `seed` 复现同一延迟序列；`delay_ms`
+  固定值模式精确生效。
+- 限额与取消：超限参数（hold/repeat/interval/总时长）被拒并附范围；执行中
+  `request/cancel` ≤1s 生效，结果如实报告 `cancelled` 与已发送量。
+
 ### 7.3 窗口
 
 - 枚举、激活、移动、缩放、信息

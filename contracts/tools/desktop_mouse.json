@@ -1,6 +1,6 @@
 {
   "name": "desktop_mouse",
-  "description": "Mouse click, double-click, hover, move, scroll, or read cursor position.",
+  "description": "Mouse click, double-click, hover, move (absolute or relative), press/release, scroll, or read cursor position.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -12,7 +12,10 @@
           "hover",
           "scroll",
           "position",
-          "move"
+          "move",
+          "move_relative",
+          "down",
+          "up"
         ]
       },
       "hwnd": {
@@ -30,6 +33,14 @@
       },
       "y": {
         "type": "integer"
+      },
+      "dx": {
+        "type": "integer",
+        "description": "move_relative: horizontal offset in physical pixels"
+      },
+      "dy": {
+        "type": "integer",
+        "description": "move_relative: vertical offset in physical pixels"
       },
       "button": {
         "type": "string",
@@ -65,6 +76,41 @@
         "type": "boolean",
         "default": false,
         "description": "Force a click whose target point is occluded by a different window"
+      },
+      "humanize": {
+        "type": "string",
+        "enum": [
+          "off",
+          "light",
+          "natural"
+        ],
+        "default": "off",
+        "description": "Human-like trajectory/pacing; off keeps legacy behavior"
+      },
+      "speed": {
+        "type": "number",
+        "minimum": 200,
+        "maximum": 5000,
+        "description": "Cursor speed in px/s for humanized movement"
+      },
+      "seed": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 18446744073709551615,
+        "description": "PRNG seed; echoed in the response for reproducibility"
+      },
+      "hold_ms": {
+        "type": "integer",
+        "minimum": 5,
+        "maximum": 5000,
+        "description": "Button hold time between press and release"
+      },
+      "jitter_px": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 200,
+        "default": 0,
+        "description": "Landing jitter: random point inside the element (2px inset) or ±px around raw coordinates"
       }
     },
     "required": [
