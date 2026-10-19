@@ -1,6 +1,7 @@
 mod bench;
 mod client;
 mod daemon;
+mod history;
 mod mcp;
 mod output;
 
@@ -77,6 +78,39 @@ enum Commands {
     },
     /// Show platform, model, token and socket diagnostics.
     Doctor,
+    /// Query the local audit history (reads JSONL files directly).
+    History {
+        #[arg(long)]
+        session: Option<String>,
+        #[arg(long)]
+        owner: Option<String>,
+        #[arg(long)]
+        tool: Option<String>,
+        /// Select a record-only run produced by record/replay (D3).
+        #[arg(long)]
+        run: Option<String>,
+        /// RFC3339, `today`, `now` or a relative window such as `30m`/`2h`/`7d`.
+        #[arg(long)]
+        since: Option<String>,
+        #[arg(long)]
+        until: Option<String>,
+        #[arg(long)]
+        failed_only: bool,
+        /// Filter by `kind` (tool_call or audit_health).
+        #[arg(long)]
+        kind: Option<String>,
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+        /// Print JSONL records instead of the tabular view.
+        #[arg(long)]
+        json: bool,
+        /// Aggregate by tool/owner instead of listing records.
+        #[arg(long)]
+        summary: bool,
+        /// Override the audit directory (default: DESKCTL_AUDIT_DIR or data dir).
+        #[arg(long)]
+        dir: Option<PathBuf>,
+    },
     /// Export the current profile's tool contracts as JSON.
     Schema {
         #[arg(long, default_value = "contracts/tools")]
@@ -149,6 +183,7 @@ enum SessionCommands {
 async fn main() {
     // 统一坐标系：鼠标/窗口/UIA/截图都按物理像素工作（见 platform::windows::dpi）。
     deskctl_core::platform::init_process_dpi_awareness();
+    init_tracing();
     let cli = Cli::parse();
     let mut profile = match cli.profile.parse::<ToolProfile>() {
         Ok(profile) => profile,
@@ -201,6 +236,7 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
             };
             let engine = Engine::new(config_for(profile));
             let result = engine.execute_oneshot(tool, args).await;
+            engine.flush_audit();
             println!(
                 "{}",
                 serde_json::to_string_pretty(&result).map_err(|error| error.to_string())?
@@ -358,6 +394,33 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
                 6
             })
         }
+        Commands::History {
+            session,
+            owner,
+            tool,
+            run,
+            since,
+            until,
+            failed_only,
+            kind,
+            limit,
+            json,
+            summary,
+            dir,
+        } => history::run(history::HistoryOptions {
+            session,
+            owner,
+            tool,
+            run,
+            since,
+            until,
+            failed_only,
+            kind,
+            limit,
+            json,
+            summary,
+            dir,
+        }),
         Commands::Schema { out } => {
             std::fs::create_dir_all(&out)
                 .map_err(|error| format!("create schema directory: {error}"))?;
@@ -436,6 +499,24 @@ fn config_for(profile: ToolProfile) -> Config {
         profile,
         ..Config::default()
     }
+}
+
+/// Install the tracing subscriber (`DESKCTL_LOG`, default `info`, stderr).
+///
+/// Log lines never carry raw args or injected text: sensitive fields follow
+/// the same redaction rules as the audit trail (see audit-history §7).
+fn init_tracing() {
+    use tracing_subscriber::EnvFilter;
+    let filter = std::env::var("DESKCTL_LOG")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .and_then(|value| EnvFilter::try_new(value).ok())
+        .unwrap_or_else(|| EnvFilter::new("info"));
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_writer(std::io::stderr)
+        .with_target(false)
+        .try_init();
 }
 
 fn exit_code_for(value: &Value) -> i32 {

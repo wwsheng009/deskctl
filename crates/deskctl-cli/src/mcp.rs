@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use deskctl_core::audit::AuditSource;
 use deskctl_core::{Config, Engine};
 use deskctl_protocol::{schema, ToolName, ToolProfile, ToolResult};
 use serde_json::{json, Value};
@@ -159,6 +160,7 @@ pub async fn run(profile: ToolProfile, skill_root: PathBuf) -> Result<(), String
                                     arguments,
                                     request_id.clone(),
                                     cancel,
+                                    AuditSource::Mcp,
                                 )
                                 .await;
                             if let Some(token) = progress_token {
@@ -244,6 +246,7 @@ pub async fn run(profile: ToolProfile, skill_root: PathBuf) -> Result<(), String
         }
     }
     session.close();
+    engine.flush_audit();
     Ok(())
 }
 
@@ -338,7 +341,28 @@ fn read_skill(root: &Path, name: &str) -> Option<String> {
     if !PROMPTS.iter().any(|(known, _)| *known == name) {
         return None;
     }
-    std::fs::read_to_string(root.join(name).join("SKILL.md")).ok()
+    let raw = std::fs::read_to_string(root.join(name).join("SKILL.md")).ok()?;
+    Some(strip_frontmatter(&raw).to_string())
+}
+
+/// Drop the YAML frontmatter so MCP prompts stay body-only. The frontmatter is
+/// skill-discovery metadata (Claude/Codex format); prompt text only needs the
+/// markdown body.
+fn strip_frontmatter(content: &str) -> &str {
+    let text = content.strip_prefix('\u{feff}').unwrap_or(content);
+    let Some(rest) = text.strip_prefix("---") else {
+        return text;
+    };
+    let Some(rest) = rest
+        .strip_prefix("\r\n")
+        .or_else(|| rest.strip_prefix('\n'))
+    else {
+        return text;
+    };
+    match rest.find("\n---") {
+        Some(end) => rest[end + 4..].trim_start_matches(['\r', '\n']),
+        None => text,
+    }
 }
 
 fn fallback_skill_prompt(name: &str) -> String {
@@ -347,4 +371,23 @@ fn fallback_skill_prompt(name: &str) -> String {
          never retry an action whose dispatch_state is sent, partial or unknown. \
          Deskctl has no approval flow."
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::strip_frontmatter;
+
+    #[test]
+    fn strip_frontmatter_removes_yaml_header() {
+        let raw = "---\nname: demo\ndescription: \"demo skill\"\n---\n\n# Demo\n\nBody.\n";
+        assert_eq!(strip_frontmatter(raw), "# Demo\n\nBody.\n");
+    }
+
+    #[test]
+    fn strip_frontmatter_handles_crlf_and_plain_body() {
+        let raw = "---\r\nname: demo\r\n---\r\nBody";
+        assert_eq!(strip_frontmatter(raw), "Body");
+        let plain = "# Demo\n\nNo frontmatter here.";
+        assert_eq!(strip_frontmatter(plain), plain);
+    }
 }

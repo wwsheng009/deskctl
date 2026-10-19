@@ -344,8 +344,16 @@ Windows 首个可用版本必须同时满足：
 
 > 方案见 [design/README.md](design/README.md)（D1–D4 里程碑）。以下编号为**草案登记**，
 > 逐项实现并通过验证后，从本节移入对应正式章节（第 3/4/6/7/9 节）并解除"规划中"标记。
+>
+> 进度：D1（审计与历史）已于 2026-10-19 实现并通过验证（见 §15.1）；D2–D4 与其余独立小改动仍为规划中。
 
-### 15.1 审计与历史（D1，P0）
+### 15.1 审计与历史（D1，P0，已实施 2026-10-19）
+
+> 已验证（AC-AUD-001..008）：证据见 [implementation-status.md](implementation-status.md) §2/§6；
+> 判据测试在 `crates/deskctl-cli/tests/audit_history.rs`（daemon E2E、oneshot、失败/降级、
+> history 过滤与聚合）与 `crates/deskctl-core/src/audit.rs` 单测（脱敏/轮转/清理/降级）；
+> 审计开销 A/B 见 [performance-baseline.md](performance-baseline.md) §5。
+> `history --run` 过滤已就绪；run 产物目录的写入随 D3。
 
 | 编号 | 验收项 | 通过标准 |
 |---|---|---|
@@ -402,6 +410,7 @@ Windows 首个可用版本必须同时满足：
 ### 15.6 输入模拟增强（I1，独立，可并行）
 
 > 方案见 [design/input-simulation.md](design/input-simulation.md)。扩展现有 `desktop_mouse`/`desktop_input` 子命令与参数，**不新增工具（保持 36）**；`humanize` 默认 `off`，行为向后兼容。
+> 进度：已于 2026-10-19 实施（见 [implementation-status.md](implementation-status.md) §1 的 I1 行与 §2 已验证能力）。
 
 | 编号 | 验收项 | 通过标准 |
 |---|---|---|

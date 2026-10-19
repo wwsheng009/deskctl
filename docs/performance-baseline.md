@@ -56,3 +56,23 @@ deskctl bench --op parallel --count 5 --parallel 8 --socket \\.\pipe\deskctl-per
 
 `deskctl bench` 是隐藏的开发命令（`--help` 不显示），复用普通 CLI 客户端路径，
 因此测量值覆盖「进程 → Named Pipe → daemon → 工具」的完整链路。
+
+## 5. D1 审计开销 A/B（审计开启 vs 关闭，2026-10-19）
+
+复现：`pwsh scripts/audit-perf-ab.ps1 -Binary <release-deskctl.exe> [-Op window_screenshot]`。
+同一 release 二进制、两个私有 daemon（`off` vs `basic`），除 `DESKCTL_AUDIT` 外参数一致。
+
+| op | 样本 | off p50/p95 | basic p50/p95 | p95 变化 | 门禁 <5% |
+|---|---:|---|---|---|---|
+| `window_screenshot`（第 1 次） | 100 | 100.47 / 106.24 ms | 100.15 / 106.75 ms | +0.48% | ✅ |
+| `window_screenshot`（第 2 次） | 100 | 100.00 / 110.21 ms | 99.99 / 106.28 ms | −3.57%（噪声内） | ✅ |
+| `screen_size`（0.3 ms 级 IPC 微操作，参考） | 1000 | 0.30 / 0.37 ms | 0.31 / 0.40 ms | +0.03 ms 绝对 | 见说明 |
+
+说明：
+
+- 门禁口径为「工具调用 p95 回退 <5%」（对比 perf-baseline 的 screenshot 类操作）；两次独立运行
+  的 p95 变化分别为 +0.48% 与 −3.57%，均在 5% 之内（后者的负值即运行间噪声）。
+- `screen_size` 是亚毫秒级 IPC 往返，审计固定开销（时间戳、digest、入队）约 +30–40 µs/call，
+  相对百分比被小基数放大；该开销不在工具实际工作路径上，按绝对量记录。
+- 审计落盘为异步单写者，调用线程只做记录构造与入队；队列满时丢弃并计数（`audit_dropped`），
+  不阻塞工具调用。

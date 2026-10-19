@@ -2,7 +2,7 @@
 
 - 文档版本：0.1
 - 日期：2026-10-19
-- 状态：Draft（待评审）
+- 状态：已实施（D1，2026-10-19；实现见 `crates/deskctl-core/src/audit.rs`、`engine.rs`、`crates/deskctl-cli/src/history.rs`；验证见 [../implementation-status.md](../implementation-status.md) §2/§6，测试 `crates/deskctl-cli/tests/audit_history.rs` 与 audit 单测；开销 A/B 见 [../performance-baseline.md](../performance-baseline.md) §5）
 - 关联：[README.md](README.md)、[data-formats.md](data-formats.md)、[prior-art.md](prior-art.md)、[../architecture.md](../architecture.md)
 
 ## 1. 目标

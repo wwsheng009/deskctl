@@ -18,6 +18,7 @@
 | M7 Skills 与 profiles | 完成 | 5 个 skills、profile 过滤、契约导出 |
 | M8 打包与发布 | 部分完成 | 运行时/模型获取、哈希校验、安装脚本与 Inno Setup 模板完成；性能基线与安全/会话矩阵（12/12，含输入串行与公平性）已实测（`scripts/perf-baseline.ps1`、`scripts/security-check.ps1`）；干净机安装、代码签名与 Windows 10 回归待发布流水线 |
 | I1 输入模拟增强 | 完成（待真机回归） | `desktop_mouse` 新增 `move_relative`/`down`/`up` 与 `hold_ms`/`jitter_px`，`desktop_mouse_drag` 支持 `path`/`speed`/`humanize`，`desktop_input` 新增 `key`/`key_down`/`key_up`（名字/VK/扫描码、长按与重复）与拟人打字；PCG32 轨迹/节奏采样（`humanize` 默认 off，seed 可复现）；工具数保持 36；单测覆盖轨迹/键码/限额；真机回归清单见 test-plan §7.2 |
+| D1 审计与历史 | 完成 | daemon/oneshot/MCP 全链路审计（JSONL v1：basic/full、文本 digest、键名单脱敏、轮转/保留/总量清理、写失败降级 disabled）；`deskctl history`（session/owner/tool/run/since/until/failed-only/kind/limit/json/summary/dir）；协议与工具数不变；契约测试 7 + 单测 15；开销 A/B p95 ≤0.5%（见 performance-baseline §5） |
 
 ## 2. 已验证能力
 
@@ -92,18 +93,33 @@
   `desktop_window_activate` 返回 `attempts/method` 诊断（实测 `attempts=1 method=set_foreground`）
   并可恢复被隐藏（`visible=false`）的窗口；`desktop_target_bind {hwnd}` 直接绑定成功
   （自动合成 `app:16432:saplogon.exe`）；UIA 名称乱码修复后同一观察返回
-  `按降序排 / 设置过滤 / 最终用户文 / 查找 / 系统`（此前为 `鎸夐檷搴忔帓搴?` 等）；
-  越界读取的 `policy_denied` 现在内联允许根目录与两条出路
+   `按降序排 / 设置过滤 / 最终用户文 / 查找 / 系统`（此前为 `鎸夐檷搴忔帓搴?` 等）；
+   越界读取的 `policy_denied` 现在内联允许根目录与两条出路
+- D1 审计与历史（AC-AUD-001..008）：三个调用入口（daemon `call`、`deskctl tool` oneshot、MCP）
+  结束即写入当日 JSONL；契约测试用私有 daemon E2E 验证「每次调用恰好一条」（成功 + 失败各一），
+  且 daemon 退出前 flush；oneshot 真机记录可查询，字段与 `design/audit-history.md` §4 一致，
+  `args_digest` 可复算
+- 文本与键名单脱敏（AC-AUD-003/007）：`DESKCTL_AUDIT_TEXT=digest` 只落 `text_len`/`text_sha256`；
+  `api_key`/`apikey`/`token`/`authorization`/`password`/`passwd`/`secret` 命中值替换为
+  `<redacted>` 并置 `args_redacted=true`（单测写入样例敏感值后断言原文不出现）
+- 轮转与保留（AC-AUD-005）：超 `MAX_FILE_MB` 切分片；`RETAIN_DAYS`/`MAX_MB` 清理
+  「先删旧文件、再从头截断最旧文件」，最新记录不丢（单测覆盖 3 类清理）
+- 降级（AC-AUD-006）：审计目录不可建/不可写时工具照常成功，stderr 仅告警一次
+  （`audit disabled: …`），进程内 `audit_state=disabled`；`DESKCTL_AUDIT=off` 不创建任何文件
+- `deskctl history`（AC-AUD-004）：过滤（session/owner/tool/run/since/until/failed-only/kind）、
+  `--limit`、`--json`、`--summary`（含 p50/p95）、`--dir` 覆盖均通过契约测试；daemon 不在也可查
+- 审计开销 A/B（`scripts/audit-perf-ab.ps1`，release）：screenshot 类操作 p95 变化 ≤0.5%；
+  `screen_size` 微操作 +30–40 µs/call（绝对量），见 performance-baseline §5
 
 ## 3. 测试状态
 
 `cargo test --workspace` 通过：
 
 ```text
-deskctl-cli:      13 passed（cli_contract 3、mcp_smoke 3、skills_contract 1、tool_contract 6）
-deskctl-core:     61 passed（lib 55、path_policy 2、session_isolation 4）
+deskctl-cli:      20 passed（audit_history 7、cli_contract 3、mcp_smoke 3、skills_contract 1、tool_contract 6）
+deskctl-core:     76 passed（lib 70、path_policy 2、session_isolation 4）
 deskctl-protocol:  3 passed
-合计:             77 passed, 0 failed
+合计:             99 passed, 0 failed
 ```
 
 `cargo fmt --all -- --check` 与 `cargo clippy --workspace --all-targets -- -D warnings` 均无告警
@@ -134,6 +150,11 @@ deskctl-protocol:  3 passed
 - I1 工具层：`delay_ms` 固定/范围解析与上限拒绝、键码标识（vk/scan/扩展位）、
   落点抖动边界（元素内缩 2px、微元素回退中心、±px 边界与 seed 确定性）、按钮参数校验
   （tools 单测）
+- D1 审计：记录 JSON 形状与 digest 可复算、basic/full 模式、文本策略（none/digest/full）、
+  键名单脱敏、超长截断与三级降级、轮转（小阈值）、清理（过期/总量/单文件截断）、
+  写失败降级、off 不落盘（audit 单测）
+- D1 契约：oneshot 审计与查询字段、失败入账、`--summary` 聚合、`--dir` 覆盖与非法 `--kind`、
+  off 模式提示、daemon E2E 恰好一条（含失败）、审计目录不可用降级（audit_history 契约测试）
 
 ## 4. 运行时资源
 
@@ -185,12 +206,14 @@ pwsh scripts/fetch-models.ps1
 - 性能基线为单机、单屏幕内容的一次测量；固定参考机器与跨版本回退对比未建立
 - 取消已覆盖等待类工具；其他长任务的协作式取消仍需逐一补齐
 - session 空闲回收：daemon 每 30 秒扫描一次，另在新会话创建时触发
+- 审计为本地证据（明文 JSONL、无签名/防篡改），定位是复核与归因，不是安全边界
 
 ### 低优先级
 
 - macOS / Linux 仅保留 trait 与占位
 - HTTP 适配层未实现
 - 在线模型更新未实现
+- 审计队列满时新记录被丢弃（`audit_dropped` 计数行周期性提示）；run 产物目录策略已就绪，写入随 D3
 
 ## 6. 与验收标准的差距
 
@@ -227,6 +250,8 @@ pwsh scripts/fetch-models.ps1
 - AC-DOC
 - AC-PERF-001/002/003/004/005/007/008/009（本机 release 实测，见 [performance-baseline.md](performance-baseline.md)）
 - AC-SEC-001/002/003/004/005/006/009/010（安全脚本 12/12：本地监听、token 校验、无审批字段、风险元数据、自定义路径、字库穿越、会话隔离、无脚本执行）
+- AC-AUD-001..008（D1：daemon E2E 恰好一条含失败、oneshot 字段与 digest 复算、文本/键名单脱敏、
+  history 过滤与聚合、轮转保留、写失败降级、日志默认不含明文与 `--run` 过滤就绪；开销 A/B ≤0.5%）
 
 未满足或未验证：
 
@@ -247,6 +272,7 @@ pwsh scripts/fetch-models.ps1
 - 支持多 session
 - 支持 MCP
 - 支持 OCR 和 UIA
+- 支持审计与历史查询（D1）
 
 但尚未达到 `acceptance-criteria.md` 的完整发布门禁。性能与安全/会话矩阵已完成本机实测；
 主要剩余工作是干净机安装、代码签名、固定参考机器基线、Windows 10 回归与 AC-EXT-*。

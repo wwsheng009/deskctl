@@ -9,6 +9,7 @@ use deskctl_protocol::{
 };
 use serde::Serialize;
 
+use crate::audit::{self, AuditError, AuditRecord, AuditSink, AuditSource, ToolCallInput};
 use crate::config::Config;
 use crate::models::ModelManager;
 use crate::resource_gate::{ResourceGate, ResourceKind};
@@ -32,6 +33,7 @@ pub struct Engine {
     resource_gate: ResourceGate,
     models: ModelManager,
     vision: VisionEngine,
+    audit: AuditSink,
     shutting_down: AtomicBool,
     started_at: Mutex<Instant>,
 }
@@ -43,6 +45,7 @@ impl Engine {
         let vision = VisionEngine::new(models.clone());
         Arc::new(Self {
             resource_gate: ResourceGate::new(config.resource_wait),
+            audit: AuditSink::new(config.audit.clone()),
             config,
             sessions: RwLock::new(HashMap::new()),
             models,
@@ -54,6 +57,15 @@ impl Engine {
 
     pub fn config(&self) -> &Config {
         &self.config
+    }
+
+    pub fn audit(&self) -> &AuditSink {
+        &self.audit
+    }
+
+    /// Flush queued audit records (bounded wait; safe to call repeatedly).
+    pub fn flush_audit(&self) {
+        self.audit.flush();
     }
 
     pub fn models(&self) -> &ModelManager {
@@ -255,6 +267,7 @@ impl Engine {
                     args,
                     Some(format!("oneshot-{}", uuid::Uuid::new_v4().simple())),
                     Arc::new(AtomicBool::new(false)),
+                    AuditSource::Oneshot,
                 )
                 .await
         }
@@ -267,15 +280,25 @@ impl Engine {
         args: serde_json::Value,
         request_id: Option<String>,
         cancel: CancelFlag,
+        source: AuditSource,
     ) -> ToolResult {
         let engine = self.clone();
+        let started = Instant::now();
+        let audit_args = if self.audit.enabled() {
+            Some(args.clone())
+        } else {
+            None
+        };
+        let audit_owner = session.owner.clone();
+        let audit_session_id = session.id.clone();
+        let audit_request_id = request_id.clone();
         let joined = tokio::spawn(async move {
             engine
                 .execute_inner(session, tool, args, request_id, cancel)
                 .await
         })
         .await;
-        match joined {
+        let result = match joined {
             Ok(result) => result,
             Err(error) => failure_meta(
                 tool,
@@ -285,7 +308,33 @@ impl Engine {
                     format!("tool task failed or panicked: {error}"),
                 ),
             ),
+        };
+        if let Some(args) = audit_args {
+            let meta = &result.meta;
+            let record = AuditRecord::tool_call(ToolCallInput {
+                request_id: meta.request_id.clone().or(audit_request_id),
+                session_id: meta.session_id.clone().or(Some(audit_session_id)),
+                owner: audit_owner,
+                source,
+                tool: tool.as_str(),
+                risk: audit::risk_str(meta.risk),
+                args,
+                duration_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                ok: result.ok,
+                dispatch_state: audit::dispatch_state_str(meta.dispatch_state),
+                effect: audit::effect_str(meta.effect),
+                verification: audit::verification_str(meta.verification),
+                retryable: meta.retryable,
+                error: result.error.as_ref().map(|error| AuditError {
+                    code: error.code.as_str().to_string(),
+                    message: error.message.clone(),
+                    retryable: error.retryable,
+                }),
+                data: result.data.as_ref(),
+            });
+            self.audit.record(record);
         }
+        result
     }
 
     async fn execute_inner(

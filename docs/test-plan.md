@@ -237,6 +237,32 @@ tests/fixtures/
 - 持久化 locator 重放
 - 状态验证 satisfied/unsatisfied/unknown
 
+### 7.6 审计与历史（D1）
+
+**AC-AUD-001 落盘与归属**：私有 daemon（独立 pipe/token/审计目录）跑 2 次成功调用 + 1 次
+参数失败调用 → `shutdown` 后 `history --json` 恰好 2 条（每调用一条），`source=daemon`、
+`session_id` 与调用会话一致；daemon 退出前 flush（契约测试已覆盖）。
+
+**AC-AUD-002/003/007 脱敏**：`basic` 无 `args`；`full` 下 `desktop_input`/`desktop_clipboard_write`
+文本按 `DESKCTL_AUDIT_TEXT`（`digest`=长度+sha256；`none`=删除；`full`=原文）处理；
+`api_key`/`token`/`authorization`/`password`/`secret` 等键命中值替换为 `<redacted>`；
+写入样例敏感值后对审计文件全文检索应无命中（单测覆盖）。
+
+**AC-AUD-004 查询**：`--session/--owner/--tool/--run/--since/--until/--failed-only/--kind/--limit/
+--json/--summary/--dir` 过滤与聚合正确；非法 `--kind` 返回 `invalid_params`（exit 2）；daemon
+不在时仍可查询。
+
+**AC-AUD-005 轮转与保留**：小阈值单测验证分片、过期删除与总量清理；单文件截断保留最新记录。
+
+**AC-AUD-006 降级**：审计目录为不可建路径（父路径是文件）时工具照常成功，stderr 恰好一条
+`audit disabled:` 告警；`DESKCTL_AUDIT=off` 不创建目录，`history` 提示已关闭（契约测试覆盖）。
+
+**AC-AUD-008 日志与 run 规则**：`DESKCTL_LOG` 默认 `info`，日志不打印 args/文本明文；
+`history --run <id>` 过滤就绪（run 产物目录随 D3 写入）。
+
+**开销门禁**：`pwsh scripts/audit-perf-ab.ps1 -Binary <release>`——审计 off vs basic 的
+`window_screenshot` p95 变化 <5%（实测 ≤0.5%，见 [performance-baseline.md](performance-baseline.md) §5）。
+
 ## 8. 端到端场景
 
 ### E2E-001 截图点击

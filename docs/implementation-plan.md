@@ -624,3 +624,6 @@ scripts/package-models.ps1
 - I1 输入模拟增强已实施（2026-10-19）：`desktop_mouse` 相对移动/按住释放/拟人轨迹、
   `desktop_input` 键码三写法/长按/重复/拟人打字；工具数保持 36（见
   [design/input-simulation.md](design/input-simulation.md)）。
+- D1 审计与历史已实施（2026-10-19）：daemon/oneshot/MCP 全链路 JSONL 审计（脱敏、轮转、保留、
+  降级）+ `deskctl history` 过滤/聚合；工具数与协议不变（见
+  [design/audit-history.md](design/audit-history.md)、[implementation-status.md](implementation-status.md)）。

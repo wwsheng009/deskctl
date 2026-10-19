@@ -1,3 +1,4 @@
+use deskctl_core::audit::AuditSource;
 use deskctl_core::Engine;
 use deskctl_protocol::{schema, ToolName, ToolProfile, ToolResult};
 use serde::{Deserialize, Serialize};
@@ -70,20 +71,20 @@ pub async fn run(
     #[cfg(not(windows))]
     let server = tokio::spawn(unix_loop(socket, state.clone()));
 
-    tokio::select! {
-        _ = tokio::signal::ctrl_c() => {},
-        _ = shutdown_rx.changed() => {},
+    let loop_result: Result<(), String> = tokio::select! {
+        _ = tokio::signal::ctrl_c() => Ok(()),
+        _ = shutdown_rx.changed() => Ok(()),
         result = server => {
             match result {
-                Ok(Ok(())) => return Err("daemon listener stopped unexpectedly".to_string()),
-                Ok(Err(error)) => return Err(error),
-                Err(error) => return Err(format!("daemon listener task failed: {error}")),
+                Ok(Ok(())) => Err("daemon listener stopped unexpectedly".to_string()),
+                Ok(Err(error)) => Err(error),
+                Err(error) => Err(format!("daemon listener task failed: {error}")),
             }
         }
-    }
-
+    };
     engine.request_shutdown();
-    Ok(())
+    engine.flush_audit();
+    loop_result
 }
 
 fn ensure_token(path: &Path) -> Result<String, String> {
@@ -168,7 +169,14 @@ async fn handle_request(request: Request, state: Arc<DaemonState>) -> Response {
                     serde_json::json!({
                         "uptime_ms": state.engine.uptime_ms(),
                         "session_count": state.engine.list_sessions().len(),
-                        "shutting_down": state.engine.shutdown_requested()
+                        "shutting_down": state.engine.shutdown_requested(),
+                        "audit": {
+                            "state": state.engine.audit().state(),
+                            "mode": state.engine.config().audit.mode.as_str(),
+                            "dir": state.engine.config().audit.dir.display().to_string(),
+                            "dropped": state.engine.audit().recorded_drops(),
+                            "disabled_reason": state.engine.audit().disabled_reason(),
+                        }
                     }),
                 );
             }
@@ -258,7 +266,14 @@ async fn handle_request(request: Request, state: Arc<DaemonState>) -> Response {
             }
             let result: ToolResult = state
                 .engine
-                .execute_with_session(session, tool, arguments, request_id.clone(), cancel)
+                .execute_with_session(
+                    session,
+                    tool,
+                    arguments,
+                    request_id.clone(),
+                    cancel,
+                    AuditSource::Daemon,
+                )
                 .await;
             if let Some(request_id) = &request_id {
                 if let Ok(mut active) = state.active.lock() {

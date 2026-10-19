@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use deskctl_protocol::ToolProfile;
 
+use crate::audit::AuditConfig;
 use crate::capture_policy::{CapturePolicy, OutputFormat};
 
 #[derive(Debug, Clone)]
@@ -17,6 +18,7 @@ pub struct Config {
     pub session_idle: Duration,
     pub resource_wait: Duration,
     pub capture: CapturePolicy,
+    pub audit: AuditConfig,
 }
 
 impl Default for Config {
@@ -34,6 +36,7 @@ impl Default for Config {
             session_idle: Duration::from_secs(env_u64("DESKCTL_SESSION_IDLE_SECS", 30 * 60)),
             resource_wait: Duration::from_secs(env_u64("DESKCTL_RESOURCE_WAIT_SECS", 30)),
             capture: capture_policy_from_env(),
+            audit: AuditConfig::from_env(),
         }
     }
 }
