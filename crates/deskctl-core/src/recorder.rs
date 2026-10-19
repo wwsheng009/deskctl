@@ -309,6 +309,28 @@ fn convert(
 
     let mut tool_name = tool.as_str().to_string();
 
+    // target_bind 的结果是后续语义步骤改写 app_id 的依据：登记 token → 绑定。
+    if tool == ToolName::TargetBind && result.ok {
+        if let Some(data) = result.data.as_ref() {
+            if let (Some(token), Some(hwnd)) = (
+                data.get("target_token")
+                    .or_else(|| data.get("token"))
+                    .and_then(Value::as_str),
+                data.get("hwnd").and_then(Value::as_i64),
+            ) {
+                if !recorder.token_names.contains_key(token) {
+                    if let Some(binding) = session
+                        .targets_snapshot()
+                        .into_iter()
+                        .find(|target| target.token == token)
+                    {
+                        let _ = register_binding(recorder, &binding, hwnd);
+                    }
+                }
+            }
+        }
+    }
+
     // 语义执行：candidate_id → locator（回放用 desktop_semantic_action）。
     if tool == ToolName::SemanticExecute {
         let observation_token = args.get("observation_token").and_then(Value::as_str);
@@ -357,6 +379,32 @@ fn convert(
             params.insert(
                 "app_ref".to_string(),
                 json!(format!("$target.{name}.app_ref")),
+            );
+        }
+    }
+    // 直接调用的 semantic_action / semantic_observe：locator 里的会话级引用同样必须改写，
+    // 否则回放会带着录制时的 app_id token / hwnd 而失败（§4.2 可回放性）。
+    if let Some(locator) = params.get_mut("locator").and_then(Value::as_object_mut) {
+        locator.remove("window_id");
+        let app_id = locator
+            .get("app_id")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        if let Some(app_id) = app_id {
+            if let Some(name) = name_for_token(recorder, &app_id) {
+                locator.insert("app_id".to_string(), json!(format!("$target.{name}.token")));
+            }
+        }
+    }
+    if let Some(token) = params
+        .get("target_token")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+    {
+        if let Some(name) = name_for_token(recorder, &token) {
+            params.insert(
+                "target_token".to_string(),
+                json!(format!("$target.{name}.token")),
             );
         }
     }
@@ -440,7 +488,9 @@ fn target_ref(recorder: &mut RecorderState, session: &Session, hwnd: i64) -> Opt
     let binding = session
         .targets_snapshot()
         .into_iter()
-        .find(|target| target.hwnd == hwnd)?;
+        .filter(|target| target.hwnd == hwnd)
+        // 同一 hwnd 可能被绑定过多次（探测/重录）：取最近一次，避免沿用旧 token。
+        .max_by_key(|target| target.created_at)?;
     let name = register_binding(recorder, &binding, hwnd)?;
     Some(name)
 }
@@ -579,6 +629,16 @@ mod tests {
         }
     }
 
+    fn result_with(data: Value) -> ToolResult {
+        let meta = ResultMeta {
+            tool: Some("test".into()),
+            dispatch_state: DispatchState::Sent,
+            risk: RiskClass::BoundedWrite,
+            ..ResultMeta::default()
+        };
+        ToolResult::success(data, meta)
+    }
+
     fn recording(include_reads: &str, max_steps: usize) -> (Session, RecorderState) {
         let session = session();
         let recorder = RecorderState::new(include_reads.to_string(), max_steps, true);
@@ -668,6 +728,65 @@ mod tests {
             .as_deref()
             .unwrap_or_default()
             .contains("optional"));
+    }
+
+    #[test]
+    fn semantic_action_locator_references_are_replayable() {
+        let session = session();
+        // 同一 hwnd 的旧绑定（探测遗留）：录制器必须优先使用本次 bind 返回的 token。
+        session
+            .store_target(TargetBinding {
+                token: "target-old".into(),
+                app_ref: "app:999000001:saplogon.exe".into(),
+                window_ref: Some("win:999000001".into()),
+                hwnd: 999_000_001,
+                title: "SAP".into(),
+                created_at: Instant::now() - std::time::Duration::from_secs(30),
+            })
+            .expect("store old target");
+        session
+            .store_target(TargetBinding {
+                token: "target-abc".into(),
+                app_ref: "app:999000001:saplogon.exe".into(),
+                window_ref: Some("win:999000001".into()),
+                hwnd: 999_000_001,
+                title: "SAP".into(),
+                created_at: Instant::now(),
+            })
+            .expect("store target");
+        start(&session, &json!({})).expect("start");
+        note_call(
+            &session,
+            ToolName::TargetBind,
+            &json!({ "hwnd": 999_000_001 }),
+            &result_with(json!({ "target_token": "target-abc", "hwnd": 999_000_001 })),
+            None,
+        );
+        note_call(
+            &session,
+            ToolName::SemanticAction,
+            &json!({
+                "locator": {
+                    "app_id": "target-abc",
+                    "window_id": "hwnd:999000001",
+                    "role": "text_field",
+                    "ordinal_hint": 0
+                },
+                "action": "focus"
+            }),
+            &result(true, DispatchState::Sent),
+            None,
+        );
+        let guard = session.recorder_mut();
+        let recorder = guard.as_ref().expect("recorder");
+        assert_eq!(recorder.steps.len(), 2);
+        assert_eq!(recorder.steps[1].tool, "desktop_semantic_action");
+        let locator = &recorder.steps[1].params["locator"];
+        assert_eq!(locator["app_id"], json!("$target.saplogon.token"));
+        assert!(
+            locator.get("window_id").is_none(),
+            "recorded hwnd must not leak into the replay locator"
+        );
     }
 
     #[test]

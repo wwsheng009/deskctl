@@ -2680,44 +2680,57 @@ async fn execute_step(
 
         // 核验（verify）。
         if failure.is_none() {
-            if let Some(verify) = &step.verify {
-                let tier = verify
-                    .get("tier")
-                    .and_then(Value::as_str)
-                    .unwrap_or("screen");
-                let outcome = if tier == "readback" {
-                    verify_readback(engine, session, run_id, &step.id, verify, ctx, cancel).await
-                } else {
-                    verify_screen(engine, session, run_id, &step.id, verify, cancel).await
-                };
-                entry["verify_tier"] = json!(outcome.tier);
-                entry["verification"] = json!(if outcome.ok {
-                    crate::audit::verification_str(Verification::Satisfied)
-                } else {
-                    crate::audit::verification_str(Verification::NoChange)
-                });
-                entry["verify"] = outcome.detail.clone();
-                if outcome.ok {
-                    if outcome.tier == "readback" {
-                        stats.readback_verified += 1;
+            if let Some(raw_verify) = &step.verify {
+                // 断言里的 $target/$param/$steps 引用与步骤参数同规则求值（§4.6.2）。
+                match substitute(raw_verify, ctx, None) {
+                    Err(message) => {
+                        entry["verify_tier"] = json!("screen");
+                        entry["verification"] =
+                            json!(crate::audit::verification_str(Verification::NoChange));
+                        entry["verify"] = json!({ "error": message });
+                        failure = Some(StepFailure::local("unresolved_reference", message));
                     }
-                } else {
-                    let code = if outcome.tier == "readback" {
-                        "readback_failed"
-                    } else {
-                        "verify_failed"
-                    };
-                    failure = Some(StepFailure {
-                        code: code.to_string(),
-                        message: outcome
-                            .failure
-                            .unwrap_or_else(|| "verification failed".to_string()),
-                        dispatch_state: result.meta.dispatch_state,
-                        effect_may_have_occurred: outcome.tier == "readback"
-                            || result.meta.dispatch_state != DispatchState::NotSent,
-                        details: Some(outcome.detail.clone()),
-                        retryable: false,
-                    });
+                    Ok(verify) => {
+                        let tier = verify
+                            .get("tier")
+                            .and_then(Value::as_str)
+                            .unwrap_or("screen");
+                        let outcome = if tier == "readback" {
+                            verify_readback(engine, session, run_id, &step.id, &verify, ctx, cancel)
+                                .await
+                        } else {
+                            verify_screen(engine, session, run_id, &step.id, &verify, cancel).await
+                        };
+                        entry["verify_tier"] = json!(outcome.tier);
+                        entry["verification"] = json!(if outcome.ok {
+                            crate::audit::verification_str(Verification::Satisfied)
+                        } else {
+                            crate::audit::verification_str(Verification::NoChange)
+                        });
+                        entry["verify"] = outcome.detail.clone();
+                        if outcome.ok {
+                            if outcome.tier == "readback" {
+                                stats.readback_verified += 1;
+                            }
+                        } else {
+                            let code = if outcome.tier == "readback" {
+                                "readback_failed"
+                            } else {
+                                "verify_failed"
+                            };
+                            failure = Some(StepFailure {
+                                code: code.to_string(),
+                                message: outcome
+                                    .failure
+                                    .unwrap_or_else(|| "verification failed".to_string()),
+                                dispatch_state: result.meta.dispatch_state,
+                                effect_may_have_occurred: outcome.tier == "readback"
+                                    || result.meta.dispatch_state != DispatchState::NotSent,
+                                details: Some(outcome.detail.clone()),
+                                retryable: false,
+                            });
+                        }
+                    }
                 }
             }
         }
