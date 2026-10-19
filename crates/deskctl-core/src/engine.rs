@@ -351,8 +351,13 @@ impl Engine {
         };
         if let Some(args) = audit_args {
             let meta = &result.meta;
+            let final_request_id = meta.request_id.clone().or(audit_request_id);
+            let run_id = final_request_id
+                .as_deref()
+                .and_then(audit::run_id_from_request_id);
             let record = AuditRecord::tool_call(ToolCallInput {
-                request_id: meta.request_id.clone().or(audit_request_id),
+                request_id: final_request_id,
+                run_id,
                 session_id: meta.session_id.clone().or(Some(audit_session_id)),
                 owner: audit_owner,
                 source,
@@ -425,7 +430,135 @@ impl Engine {
         };
         let result = tools::execute(&self, &session, tool, &args, &cancel).await;
         drop(permit);
-        result_for_session(&session, tool, request_id, result)
+        let record_request_id = request_id.clone();
+        let tool_result = result_for_session(&session, tool, request_id, result);
+        session.record_call(tool, &args, &tool_result, record_request_id.as_deref());
+        tool_result
+    }
+
+    /// 供脚本步骤使用：与 [`Engine::execute_with_session`] 相同的会话/资源/审计路径，
+    /// 但只调度叶子工具，避免 `script -> engine -> script` 的异步递归。
+    pub async fn execute_leaf_with_session(
+        self: &Arc<Self>,
+        session: Arc<Session>,
+        tool: ToolName,
+        args: serde_json::Value,
+        request_id: Option<String>,
+        cancel: CancelFlag,
+        source: AuditSource,
+    ) -> ToolResult {
+        let engine = self.clone();
+        let started = Instant::now();
+        let audit_args = if self.audit.enabled() {
+            Some(args.clone())
+        } else {
+            None
+        };
+        let audit_owner = session.owner();
+        let audit_session_id = session.id.clone();
+        let audit_request_id = request_id.clone();
+        let joined = tokio::spawn(async move {
+            engine
+                .execute_leaf_inner(session, tool, args, request_id, cancel)
+                .await
+        })
+        .await;
+        let result = match joined {
+            Ok(result) => result,
+            Err(error) => failure_meta(
+                tool,
+                None,
+                ToolError::new(
+                    ErrorCode::Internal,
+                    format!("tool task failed or panicked: {error}"),
+                ),
+            ),
+        };
+        if let Some(args) = audit_args {
+            let meta = &result.meta;
+            let final_request_id = meta.request_id.clone().or(audit_request_id);
+            let run_id = final_request_id
+                .as_deref()
+                .and_then(audit::run_id_from_request_id);
+            let record = AuditRecord::tool_call(ToolCallInput {
+                request_id: final_request_id,
+                run_id,
+                session_id: meta.session_id.clone().or(Some(audit_session_id)),
+                owner: audit_owner,
+                source,
+                tool: tool.as_str(),
+                risk: audit::risk_str(meta.risk),
+                args,
+                duration_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                ok: result.ok,
+                dispatch_state: audit::dispatch_state_str(meta.dispatch_state),
+                effect: audit::effect_str(meta.effect),
+                verification: audit::verification_str(meta.verification),
+                retryable: meta.retryable,
+                error: result.error.as_ref().map(|error| AuditError {
+                    code: error.code.as_str().to_string(),
+                    message: error.message.clone(),
+                    retryable: error.retryable,
+                }),
+                data: result.data.as_ref(),
+            });
+            self.audit.record(record);
+        }
+        result
+    }
+
+    async fn execute_leaf_inner(
+        self: Arc<Self>,
+        session: Arc<Session>,
+        tool: ToolName,
+        args: serde_json::Value,
+        request_id: Option<String>,
+        cancel: CancelFlag,
+    ) -> ToolResult {
+        session.touch();
+        if cancel.load(Ordering::Acquire) {
+            return result_for_session(
+                &session,
+                tool,
+                request_id,
+                Err(ToolError::new(
+                    ErrorCode::Cancelled,
+                    "request was cancelled",
+                )),
+            );
+        }
+        if !session.allows(tool) {
+            return result_for_session(
+                &session,
+                tool,
+                request_id,
+                Err(ToolError::new(
+                    ErrorCode::PolicyDenied,
+                    format!(
+                        "{} is not available in profile {}",
+                        tool.as_str(),
+                        session.profile
+                    ),
+                )),
+            );
+        }
+        let resources = resource_needs(tool, &args);
+        let permit = if resources.is_empty() {
+            None
+        } else {
+            match self.resource_gate.acquire(&resources).await {
+                Ok(permit) => Some(permit),
+                Err(error) => {
+                    return result_for_session(&session, tool, request_id, Err(error));
+                }
+            }
+        };
+        let result = tools::execute_leaf(&self, &session, tool, &args, &cancel).await;
+        drop(permit);
+        let record_request_id = request_id.clone();
+        let tool_result = result_for_session(&session, tool, request_id, result);
+        session.record_call(tool, &args, &tool_result, record_request_id.as_deref());
+        tool_result
     }
 }
 

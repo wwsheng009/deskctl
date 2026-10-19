@@ -1,4 +1,4 @@
-//! Public JSON Schemas for the complete 28-tool surface.
+//! Public JSON Schemas for the complete 40-tool surface.
 
 use serde_json::{json, Value};
 
@@ -470,6 +470,44 @@ pub fn input_schema(name: ToolName) -> Value {
             }),
             &["goal"],
         ),
+        ToolName::RecorderStart => object(
+            json!({
+                "include_reads": { "type": "string", "enum": ["essential","all","none"], "default": "essential" },
+                "max_steps": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 200 },
+                "allow_relaunch": { "type": "boolean", "default": true, "description": "Record allow_relaunch=true for catalog-launched targets" }
+            }),
+            &[],
+        ),
+        ToolName::RecorderStop => object(
+            json!({
+                "format": { "type": "string", "enum": ["script"], "default": "script" },
+                "path": { "type": "string", "description": "Optional .dscript.json output path (allowed image roots policy)" },
+                "allow_relaunch": { "type": "boolean", "description": "Override allow_relaunch for every recorded catalog target (default: the recorder's start value)" }
+            }),
+            &[],
+        ),
+        ToolName::ScriptRun => object(
+            json!({
+                "script": { "type": "object", "description": "Inline deskctl-script/1 document" },
+                "path": { "type": "string", "description": "Script file path (.dscript.json) under the allowed roots" },
+                "dry_run": { "type": "boolean", "default": false },
+                "params": { "type": "object", "description": "Script parameter overrides (--param k=v)" },
+                "on_error": { "type": "string", "enum": ["stop","continue"] },
+                "from_step": { "type": "string", "description": "Resume from this step id (earlier steps are not re-executed)" },
+                "to_step": { "type": "string" },
+                "risk_max": { "type": "string", "enum": ["read_only","reversible","bounded_write","external_commit"] },
+                "allow_external_commit": { "type": "boolean", "default": false },
+                "allow_resume_after_unknown": { "type": "boolean", "default": false },
+                "no_fragile": { "type": "boolean", "default": false, "description": "Skip steps marked fragile (coordinate based)" }
+            }),
+            &[],
+        ),
+        ToolName::FileHash => object(
+            json!({
+                "path": { "type": "string", "minLength": 1 }
+            }),
+            &["path"],
+        ),
     }
 }
 
@@ -513,8 +551,8 @@ mod tests {
 
     #[test]
     fn descriptors_have_stable_counts_and_names() {
-        assert_eq!(tool_descriptors(ToolProfile::Standard).len(), 34);
-        assert_eq!(tool_descriptors(ToolProfile::Full).len(), 36);
+        assert_eq!(tool_descriptors(ToolProfile::Standard).len(), 38);
+        assert_eq!(tool_descriptors(ToolProfile::Full).len(), 40);
         for descriptor in tool_descriptors(ToolProfile::Full) {
             assert!(descriptor["name"]
                 .as_str()

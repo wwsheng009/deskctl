@@ -1,0 +1,24 @@
+{
+  "name": "desktop_file_hash",
+  "description": "Read a file's size and sha256 under the allowed input roots (readback verification for scripts).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "required": [
+      "path"
+    ],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_file_hash",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

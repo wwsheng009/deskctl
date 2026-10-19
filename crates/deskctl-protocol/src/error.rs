@@ -11,6 +11,12 @@ pub enum ErrorCode {
     StaleCapture,
     StaleObservation,
     TargetUnavailable,
+    /// A previously bound target (hwnd/token) is no longer valid; re-resolve.
+    StaleTarget,
+    /// Target resolution matched multiple windows and none is uniquely best.
+    AmbiguousTarget,
+    /// Target fingerprint mismatch (suspected hwnd reuse); refuses by default.
+    IdentityMismatch,
     ResourceBusy,
     Cancelled,
     Timeout,
@@ -32,6 +38,9 @@ impl ErrorCode {
             Self::StaleCapture => "stale_capture",
             Self::StaleObservation => "stale_observation",
             Self::TargetUnavailable => "target_unavailable",
+            Self::StaleTarget => "stale_target",
+            Self::AmbiguousTarget => "ambiguous_target",
+            Self::IdentityMismatch => "identity_mismatch",
             Self::ResourceBusy => "resource_busy",
             Self::Cancelled => "cancelled",
             Self::Timeout => "timeout",

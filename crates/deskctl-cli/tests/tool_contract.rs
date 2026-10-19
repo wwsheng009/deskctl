@@ -25,10 +25,10 @@ fn every_tool_schema_is_object_with_required_fields() {
 
 #[test]
 fn profiles_expose_expected_tool_counts() {
-    assert_eq!(tool_descriptors(ToolProfile::Standard).len(), 34);
-    assert_eq!(tool_descriptors(ToolProfile::Full).len(), 36);
-    assert!(tool_descriptors(ToolProfile::Minimal).len() < 34);
-    assert!(tool_descriptors(ToolProfile::Readonly).len() < 34);
+    assert_eq!(tool_descriptors(ToolProfile::Standard).len(), 38);
+    assert_eq!(tool_descriptors(ToolProfile::Full).len(), 40);
+    assert!(tool_descriptors(ToolProfile::Minimal).len() < 38);
+    assert!(tool_descriptors(ToolProfile::Readonly).len() < 38);
 }
 
 #[test]

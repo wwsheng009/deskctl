@@ -633,3 +633,10 @@ scripts/package-models.ps1
   审计归因与 `history --owner`（`prefix*` 通配）/`by_owner` 聚合、`doctor.owner_limits`；
   工具数与协议不变（见 [design/agent-identity.md](design/agent-identity.md)、
   [implementation-status.md](implementation-status.md)）。
+- D3 录制与回放已实施（2026-10-19）：`desktop_recorder_start/stop`（会话内单录制器、
+  include_reads、max_steps/256 KiB 上限、参数化 hwnd/candidate_id/capture_id）、
+  `desktop_script_run`（解析/静态校验/preflight/dry-run/逐步执行/重试/目标重绑/两级核验/
+  run report + outcome + handoff）、只读 `desktop_file_hash`；目标描述+指纹（strict/balanced/loose）
+  与 `launch_ref` 受限重启；审计 `run_id` 与 `history --run`；CLI `record start|stop --out`、
+  `script validate|run`；工具数 36 → 40（见 [design/record-replay.md](design/record-replay.md)、
+  [implementation-status.md](implementation-status.md)）。

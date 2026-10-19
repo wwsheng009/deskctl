@@ -47,6 +47,10 @@ skills/
    └─ SKILL.md
 ```
 
+每个 `SKILL.md` 必须带 Claude/Codex 兼容的 YAML frontmatter：`name`（与目录名一致的
+kebab-case）和 `description`（用途与触发场景）。可选 `agents/openai.yaml` 提供 UI 元数据。
+MCP `prompts/get` 返回剥离 frontmatter 后的正文。
+
 ## 3. skill.json 规范
 
 ```json
@@ -271,6 +275,14 @@ desktop_targets_list
 
 需要长文本？
   -> desktop_clipboard_write -> 粘贴 -> desktop_clipboard_clean
+
+需要把一段操作沉淀为可重复执行的脚本？
+  -> desktop_recorder_start {include_reads:"essential"}
+  -> 正常执行 desktop_* 步骤（录制器自动把 hwnd/candidate_id 参数化）
+  -> desktop_recorder_stop（或 CLI `deskctl record stop --out plan.dscript.json`）
+  -> `deskctl script validate --file plan.dscript.json`（本地，不触达 daemon）
+  -> `deskctl script run --file plan.dscript.json --dry-run`（预检 + 判定，不执行）
+  -> `deskctl script run --file plan.dscript.json --session <id>`
 ```
 
 ### 5.1 老式界面巡检配方（SAP / ERP / 终端监控页）
@@ -291,6 +303,23 @@ desktop_targets_list
 要点：`capture_id` 读取不受允许图像根限制（无需把截图写进允许目录）；`read_kv` 的
 `ambiguous=true` 表示同行有多个候选值，需人工/LLM 复核；`window_activate` 返回
 `attempts/method` 便于判断是否触发 Alt 解锁兜底。
+
+### 5.2 录制/回放失败恢复（D3）
+
+| 错误 | 处理 |
+|---|---|
+| `stale_target` | 脚本里的目标已失效：按 `targets.<名>.match/fingerprint` 重新解析；不要复用旧 hwnd |
+| `ambiguous_target` | `details.candidates` 给出候选；用 `--param <name>=<hwnd>` 或更严格的 `match`/`window_ref` |
+| `identity_mismatch` | 确认应用是否重启；确需继续时在目标 spec 写 `strictness:"loose"` |
+| `policy_denied`（preflight） | 读 `details.issues`；按 `code` 修脚本/参数/风险后从头重跑 |
+| `resource_busy`（run/recorder） | 同会话只允许 1 个 recorder、1 个 run；等待 `details.run_id` 结束 |
+
+失败后**先读 `outcome` 再决定是否重跑**：
+
+- `HALTED_BEFORE_EFFECT` → `safe_to_retry=true`，修正参数后用 `--from <handoff.resume_hint.from_step>` 续跑；
+- `RECONCILIATION_REQUIRED` → 副作用可能已发生，`safe_to_retry=false`；先读回/人工核对，
+  再显式 `allow_resume_after_unknown=true` 续跑；
+- `VERIFIED` / `COMPLETED_UNVERIFIED` → 前者可出回执，后者只证明"执行完"。
 
 PowerShell 传参建议：`@{...} | ConvertTo-Json -Depth 10 -Compress | deskctl call <sess> <tool> --stdin`
 （`--stdin` 可避免手工拼接 JSON 时的反斜杠转义错误）。
@@ -370,6 +399,7 @@ Deskctl 不提供审批。Skill 必须：
 - 每个 Skill 的 `skill.json` 可解析。
 - 引用的工具都存在。
 - 平台和 profile 匹配。
+- `SKILL.md` 带 `name`/`description` frontmatter，`name` 与目录一致（`skills_contract` 测试校验）。
 - `SKILL.md` 包含流程、失败恢复和禁止事项。
 - MCP prompts 与 Skill 内容一致。
 - 评估用例可重复执行。

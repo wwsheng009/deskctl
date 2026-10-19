@@ -20,6 +20,7 @@
 | I1 输入模拟增强 | 完成（待真机回归） | `desktop_mouse` 新增 `move_relative`/`down`/`up` 与 `hold_ms`/`jitter_px`，`desktop_mouse_drag` 支持 `path`/`speed`/`humanize`，`desktop_input` 新增 `key`/`key_down`/`key_up`（名字/VK/扫描码、长按与重复）与拟人打字；PCG32 轨迹/节奏采样（`humanize` 默认 off，seed 可复现）；工具数保持 36；单测覆盖轨迹/键码/限额；真机回归清单见 test-plan §7.2 |
 | D1 审计与历史 | 完成 | daemon/oneshot/MCP 全链路审计（JSONL v1：basic/full、文本 digest、键名单脱敏、轮转/保留/总量清理、写失败降级 disabled）；`deskctl history`（session/owner/tool/run/since/until/failed-only/kind/limit/json/summary/dir）；协议与工具数不变；契约测试 7 + 单测 15；开销 A/B p95 ≤0.5%（见 performance-baseline §5） |
 | D2 Agent 身份 | 完成 | `session create --owner`（小写规范化、`[a-zA-Z0-9._:@-]`、1..64、保留名拒绝）；MCP `clientInfo.name`→`mcp:<name>`（缺失 `mcp:unknown`）；`session list --owner` 精确过滤；`DESKCTL_OWNER_MAX_SESSIONS` per-owner 限额（超限 `resource_busy`）且不影响其他 owner；审计归因与 `history --owner`（`prefix*` 通配）/`by_owner`（p50/p95）；`doctor.owner_limits`；协议与工具数不变；契约测试 4 + 单测 3 |
+| D3 录制与回放 | 完成（E2E-012 真机 SAP 流程待回归） | `desktop_recorder_start/stop`（会话内单录制器、include_reads、max_steps/256KiB 上限、`allow_relaunch` 覆盖）、`desktop_script_run`（解析/静态校验/preflight/dry-run/逐步执行/重试/重绑/核验/run report/outcome/handoff）、`desktop_file_hash`（readback 强核验）；目标描述+指纹解析（strict/balanced/loose、歧义/指纹不符/stale 分码、`launch_ref` 受限重启、5 次重绑预算）；审计 `run_id` + `history --run`；CLI `record start/stop --out`、`script validate|run`；工具数 36 → 40（standard 34 → 38）；契约测试 3 + 单测 19 |
 
 ## 2. 已验证能力
 
@@ -122,16 +123,35 @@
   （exit 5，消息含 owner 与现值），其他 owner 与默认 `daemon-client` 不受影响；默认 0 不启用
 - D2 归因查询（AC-AGT-003）：同会话跨调用审计 `owner` 一致；`history --owner`（精确 + `prefix*`）
   过滤与 `--summary.by_owner[]`（calls/ok/failed/not_sent/unknown/p50/p95）聚合通过契约测试
+- D3 录制（AC-RPL-001/002）：`desktop_recorder_start`（`include_reads` 三档、`max_steps` 1..1000、
+  单会话单录制器 → 重复 start `resource_busy`）、`recorder_stop` 返回合法 `deskctl-script/1`
+  （`v/format/name/created/targets/params/steps/notes`）；`max_steps` 与 256 KiB 上限触发时停止记录
+  并写 `warnings`；已绑定 `hwnd` → `$target.<名>.hwnd`、`app_id` → `$target.<名>.token`、
+  `candidate_id` → `locator`、坐标步骤 `fragile`、`capture_id` `volatile`、`not_sent` 失败步骤 `optional`
+- D3 回放（AC-RPL-003/004/005/006）：`script validate` 纯本地校验；`script_run` 预检拒绝返回
+  `policy_denied`（结构错误 `invalid_params`）且 details 为 `REJECTED_POLICY` 形态的 run report；
+  `dry_run` 不执行工具、不产生步骤审计，逐步输出 `execute|skip_fragile|reject_risk|reject_unknown_tool`；
+  真正执行逐步写入 `request_id=<run_id>:<step>`，`history --run <run_id>` 可分步复盘；
+  仅 `not_sent` 可自动重试/重绑（`partial/unknown` 不重试）
+- D3 目标与核验（AC-RPL-007/008）：描述+指纹解析（`strictness` strict/balanced/loose），
+  歧义 `ambiguous_target`、指纹不符 `identity_mismatch`、句柄失效 `stale_target` 分码；
+  `launch_ref` 受限重启并记 `relaunched`；单 run 重绑预算 5 次；`screen`/`readback` 两级核验，
+  `file_sha256` 经 `desktop_file_hash` 读回比对
+- D3 结果契约（AC-RPL-009/013/014）：run-level `outcome`（`VERIFIED`/`HALTED_BEFORE_EFFECT`/
+  `RECONCILIATION_REQUIRED`/`COMPLETED_UNVERIFIED`/`REJECTED_POLICY`/`CANCELED`）；
+  `handoff` 含 `run_id/failed_step/reason/effect_may_have_occurred/safe_to_retry/resume_hint/
+  suggested_actions`；`RECONCILIATION_REQUIRED` 后 `--from` 默认拒绝，需
+  `allow_resume_after_unknown=true`；同会话并发 run 返回 `resource_busy` + 当前 `run_id`
 
 ## 3. 测试状态
 
 `cargo test --workspace` 通过：
 
 ```text
-deskctl-cli:      27 passed（agent_identity 4、audit_history 7、cli_contract 3、mcp_smoke 4、skills_contract 1、tool_contract 6、main 单测 2）
-deskctl-core:     79 passed（lib 73、path_policy 2、session_isolation 4）
+deskctl-cli:      30 passed（agent_identity 4、audit_history 7、cli_contract 3、mcp_smoke 4、script_contract 3、skills_contract 1、tool_contract 6、main 单测 2）
+deskctl-core:     98 passed（lib 92、path_policy 2、session_isolation 4）
 deskctl-protocol:  3 passed
-合计:            109 passed, 0 failed
+合计:            131 passed, 0 failed
 ```
 
 `cargo fmt --all -- --check` 与 `cargo clippy --workspace --all-targets -- -D warnings` 均无告警
@@ -139,8 +159,8 @@ deskctl-protocol:  3 passed
 
 覆盖：
 
-- 36 工具 Schema 合法性
-- 34/36 profile 工具数量
+- 40 工具 Schema 合法性
+- 38/40 profile 工具数量
 - readonly 不暴露输入工具
 - 无 approve/reject/approval 工具
 - skills manifest 与工具名一致性
@@ -172,6 +192,14 @@ deskctl-protocol:  3 passed
 - D2 契约：owner 创建/规范化/列表过滤/非法拒绝、per-owner 限额（`resource_busy` exit 5）与跨 owner
   不受影响、审计归因与 `history --owner`（精确 + `prefix*`）/`by_owner` 聚合、MCP clientInfo 映射
   （含含空格名清洗）与缺失回退 `mcp:unknown`（agent_identity 契约测试）
+- D3 脚本模型：解析/版本与步骤 ID 校验、`$param`/`$var`/`$target`/`$steps`/`$env` 替换、
+  `expect` 断言、`risk_max` 默认值与 `external_commit` 显式放行、静态校验（未知工具/风险/引用）、
+  outcome 分类与 handoff 推导（script 单测 10）
+- D3 录制器：`include_reads` 过滤、重复 start 拒绝、`max_steps` 截断、回放步骤不二次录制、
+  坐标/capture 标记、`not_sent` 转 `optional`、脚本形状（recorder 单测 9）
+- D3 契约：录制 → 导出 → `script validate` → `script run --dry-run` → 真跑（`run_id` 审计分步）→
+  同会话并发 `resource_busy`；预检拒绝（未知工具/风险超限/未解析变量）；`not_sent` 失败 handoff 与
+  `--from` 续跑；`file_sha256` readback 通过/失败与续跑门禁（script_contract 3）
 
 ## 4. 运行时资源
 
@@ -224,6 +252,9 @@ pwsh scripts/fetch-models.ps1
 - 取消已覆盖等待类工具；其他长任务的协作式取消仍需逐一补齐
 - session 空闲回收：daemon 每 30 秒扫描一次，另在新会话创建时触发
 - 审计为本地证据（明文 JSONL、无签名/防篡改），定位是复核与归因，不是安全边界
+- D3 续跑仅支持由 `params` 显式回填被跳过步骤的 `$var`/`$steps` 值（未接入
+  `history --run` 自动回填）；`strict` 的 `process_start_time` 指纹在平台层不可得时退化为
+  pid+class+title；`dry_run` 仍会解析/绑定目标（不执行工具、不写步骤审计）
 
 ### 低优先级
 

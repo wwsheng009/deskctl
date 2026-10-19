@@ -1,0 +1,70 @@
+{
+  "name": "desktop_script_run",
+  "description": "Validate, preflight and replay a deskctl-script/1 document step by step, returning a run report with outcome, handoff and per-step results.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "script": {
+        "type": "object",
+        "description": "Inline deskctl-script/1 document"
+      },
+      "path": {
+        "type": "string",
+        "description": "Script file path (.dscript.json) under the allowed roots"
+      },
+      "dry_run": {
+        "type": "boolean",
+        "default": false
+      },
+      "params": {
+        "type": "object",
+        "description": "Script parameter overrides (--param k=v)"
+      },
+      "on_error": {
+        "type": "string",
+        "enum": [
+          "stop",
+          "continue"
+        ]
+      },
+      "from_step": {
+        "type": "string",
+        "description": "Resume from this step id (earlier steps are not re-executed)"
+      },
+      "to_step": {
+        "type": "string"
+      },
+      "risk_max": {
+        "type": "string",
+        "enum": [
+          "read_only",
+          "reversible",
+          "bounded_write",
+          "external_commit"
+        ]
+      },
+      "allow_external_commit": {
+        "type": "boolean",
+        "default": false
+      },
+      "allow_resume_after_unknown": {
+        "type": "boolean",
+        "default": false
+      },
+      "no_fragile": {
+        "type": "boolean",
+        "default": false,
+        "description": "Skip steps marked fragile (coordinate based)"
+      }
+    },
+    "required": [],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_script_run",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false
+  }
+}

@@ -58,8 +58,26 @@ impl ToolExecution {
 }
 
 pub async fn execute(
-    engine: &Engine,
-    session: &Session,
+    engine: &std::sync::Arc<Engine>,
+    session: &std::sync::Arc<Session>,
+    tool: ToolName,
+    args: &Value,
+    cancel: &CancelFlag,
+) -> Result<ToolExecution, ToolError> {
+    // 脚本执行会回调引擎（`execute_leaf_with_session`），构成异步递归；
+    // 在此处装箱以打断 future 类型推导环。
+    if tool == ToolName::ScriptRun {
+        return Box::pin(crate::script::run(engine, session, args, cancel)).await;
+    }
+    execute_leaf(engine, session, tool, args, cancel).await
+}
+
+/// 叶子工具调度：不包含 `desktop_script_run`（脚本步骤禁止嵌套脚本）。
+/// 与 [`execute`] 分开是为了让 `execute_inner -> execute -> script::run ->
+/// execute_leaf_with_session -> execute_leaf` 的 future 类型推导保持无环。
+pub(crate) async fn execute_leaf(
+    engine: &std::sync::Arc<Engine>,
+    session: &std::sync::Arc<Session>,
     tool: ToolName,
     args: &Value,
     cancel: &CancelFlag,
@@ -119,6 +137,17 @@ pub async fn execute(
         .retryable(false)),
         ToolName::TargetsList => targets_list(args),
         ToolName::TargetBind => target_bind(session, args),
+        ToolName::RecorderStart => Ok(ToolExecution::read(crate::recorder::start(session, args)?)),
+        ToolName::RecorderStop => Ok(ToolExecution::read(crate::recorder::stop(
+            engine, session, args,
+        )?)),
+        // 脚本执行会回调 `Engine::execute_with_session`，构成异步递归；
+        // 在此处装箱以打断 future 类型/Send 推导的循环。
+        ToolName::ScriptRun => Err(ToolError::new(
+            ErrorCode::Internal,
+            "desktop_script_run cannot be nested inside a script",
+        )),
+        ToolName::FileHash => file_hash(engine, args),
         ToolName::SemanticObserve
         | ToolName::SemanticCandidate
         | ToolName::SemanticExecute
@@ -2812,6 +2841,68 @@ fn normalize_image_path(engine: &Engine, value: &str) -> Result<std::path::PathB
         .retryable(false));
     }
     Ok(absolute)
+}
+
+/// 路径策略（与图片输入一致）：受配置的允许根约束；脚本文件与产物文件共用。
+pub(crate) fn normalize_allowed_path(
+    engine: &Engine,
+    value: &str,
+) -> Result<std::path::PathBuf, ToolError> {
+    let path = Path::new(value);
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()?.join(path)
+    };
+    if !engine.config().is_allowed_image_path(&absolute) {
+        let roots: Vec<String> = engine
+            .config()
+            .allowed_image_roots()
+            .into_iter()
+            .map(|root| root.display().to_string())
+            .collect();
+        return Err(ToolError::new(
+            ErrorCode::PolicyDenied,
+            format!(
+                "path '{}' is outside the configured allowed roots ({}); move the file into one of these roots or set DESKCTL_ALLOWED_INPUT_ROOT",
+                absolute.display(),
+                roots.join(", ")
+            ),
+        )
+        .retryable(false));
+    }
+    Ok(absolute)
+}
+
+/// `desktop_file_hash`：只读文件指纹（存在性 + sha256），受允许根策略约束。
+fn file_hash(engine: &Engine, args: &Value) -> Result<ToolExecution, ToolError> {
+    let raw = required_str(args, "path")?;
+    let path = normalize_allowed_path(engine, raw)?;
+    if !path.exists() {
+        return Ok(ToolExecution::read(json!({
+            "path": path.display().to_string(),
+            "exists": false,
+            "sha256": Value::Null,
+            "bytes": Value::Null
+        })));
+    }
+    let bytes = std::fs::read(&path).map_err(|error| {
+        ToolError::new(
+            ErrorCode::PermissionDenied,
+            format!("cannot read {}: {error}", path.display()),
+        )
+    })?;
+    Ok(ToolExecution::read(json!({
+        "path": path.display().to_string(),
+        "exists": true,
+        "sha256": crate::audit::digest_bytes(&bytes),
+        "bytes": bytes.len(),
+        "modified_ms": std::fs::metadata(&path)
+            .ok()
+            .and_then(|meta| meta.modified().ok())
+            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|duration| duration.as_millis() as u64)
+    })))
 }
 
 struct OffsetColor {

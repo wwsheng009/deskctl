@@ -4,6 +4,7 @@ mod daemon;
 mod history;
 mod mcp;
 mod output;
+mod script_cmd;
 
 use clap::{Parser, Subcommand};
 use deskctl_core::{config, Config, Engine};
@@ -114,6 +115,24 @@ enum Commands {
         #[arg(long)]
         dir: Option<PathBuf>,
     },
+    /// Record a daemon session's tool calls as a `deskctl-script/1` document.
+    Record {
+        #[command(subcommand)]
+        command: RecordCommands,
+        #[arg(long, global = true)]
+        session: Option<String>,
+        #[arg(long, global = true)]
+        socket: Option<String>,
+        #[arg(long, global = true)]
+        token_file: Option<PathBuf>,
+        #[arg(long, global = true)]
+        session_token: Option<String>,
+    },
+    /// Validate or replay a `deskctl-script/1` document.
+    Script {
+        #[command(subcommand)]
+        command: ScriptCommands,
+    },
     /// Export the current profile's tool contracts as JSON.
     Schema {
         #[arg(long, default_value = "contracts/tools")]
@@ -143,6 +162,73 @@ enum Commands {
         socket: Option<String>,
         #[arg(long)]
         token_file: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum RecordCommands {
+    /// Start recording tool calls in the given session.
+    Start {
+        /// `essential` (default), `all`, or `none`.
+        #[arg(long)]
+        include_reads: Option<String>,
+        #[arg(long)]
+        max_steps: Option<u32>,
+        /// Record `allow_relaunch=true` for catalog-launched targets.
+        #[arg(long)]
+        allow_relaunch: Option<bool>,
+    },
+    /// Stop recording and optionally write the script to a file.
+    Stop {
+        /// Output `.dscript.json` path; defaults to printing the script inline.
+        #[arg(long = "out")]
+        out: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+#[allow(clippy::large_enum_variant)]
+enum ScriptCommands {
+    /// Statically validate a script file (no daemon required).
+    Validate {
+        #[arg(long = "file")]
+        file: PathBuf,
+        #[arg(long)]
+        risk_max: Option<String>,
+        #[arg(long)]
+        allow_external_commit: bool,
+    },
+    /// Replay a script in a daemon session.
+    Run {
+        #[arg(long = "file")]
+        file: PathBuf,
+        #[arg(long)]
+        session: Option<String>,
+        #[arg(long)]
+        dry_run: bool,
+        /// `k=v` (repeatable); values parse as JSON when possible.
+        #[arg(long = "param", value_parser = parse_param)]
+        params: Vec<(String, String)>,
+        #[arg(long)]
+        on_error: Option<String>,
+        #[arg(long = "from")]
+        from_step: Option<String>,
+        #[arg(long = "to")]
+        to_step: Option<String>,
+        #[arg(long)]
+        risk_max: Option<String>,
+        #[arg(long)]
+        allow_external_commit: bool,
+        #[arg(long)]
+        allow_resume_after_unknown: bool,
+        #[arg(long)]
+        no_fragile: bool,
+        #[arg(long)]
+        socket: Option<String>,
+        #[arg(long)]
+        token_file: Option<PathBuf>,
+        #[arg(long)]
+        session_token: Option<String>,
     },
 }
 
@@ -457,6 +543,94 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
             summary,
             dir,
         }),
+        Commands::Record {
+            command,
+            session,
+            socket,
+            token_file,
+            session_token,
+        } => {
+            let conn = script_cmd::Conn {
+                socket: socket.unwrap_or_else(config::default_socket_name),
+                token_file: token_file.unwrap_or_else(config::token_path),
+                session,
+                session_token,
+            };
+            let (result, code) = match command {
+                RecordCommands::Start {
+                    include_reads,
+                    max_steps,
+                    allow_relaunch,
+                } => {
+                    script_cmd::record_start(&conn, include_reads, max_steps, allow_relaunch)
+                        .await?
+                }
+                RecordCommands::Stop { out } => script_cmd::record_stop(&conn, out).await?,
+            };
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&result).map_err(|error| error.to_string())?
+            );
+            Ok(code)
+        }
+        Commands::Script { command } => match command {
+            ScriptCommands::Validate {
+                file,
+                risk_max,
+                allow_external_commit,
+            } => {
+                let (result, code) = script_cmd::validate(&file, risk_max, allow_external_commit)?;
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&result).map_err(|error| error.to_string())?
+                );
+                Ok(code)
+            }
+            ScriptCommands::Run {
+                file,
+                session,
+                dry_run,
+                params,
+                on_error,
+                from_step,
+                to_step,
+                risk_max,
+                allow_external_commit,
+                allow_resume_after_unknown,
+                no_fragile,
+                socket,
+                token_file,
+                session_token,
+            } => {
+                let conn = script_cmd::Conn {
+                    socket: socket.unwrap_or_else(config::default_socket_name),
+                    token_file: token_file.unwrap_or_else(config::token_path),
+                    session,
+                    session_token,
+                };
+                let (result, code) = script_cmd::run(
+                    &conn,
+                    script_cmd::RunRequest {
+                        file: &file,
+                        dry_run,
+                        params,
+                        on_error,
+                        from_step,
+                        to_step,
+                        risk_max,
+                        allow_external_commit,
+                        allow_resume_after_unknown,
+                        no_fragile,
+                    },
+                )
+                .await?;
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&result).map_err(|error| error.to_string())?
+                );
+                Ok(code)
+            }
+        },
         Commands::Schema { out } => {
             std::fs::create_dir_all(&out)
                 .map_err(|error| format!("create schema directory: {error}"))?;
@@ -571,12 +745,24 @@ fn exit_code_for(value: &Value) -> i32 {
 fn exit_code_for_code(code: &str) -> i32 {
     match code {
         "invalid_params" | "unknown_tool" => 2,
-        "stale_capture" | "stale_observation" | "server_restarted" => 4,
+        "stale_capture" | "stale_observation" | "stale_target" | "ambiguous_target"
+        | "identity_mismatch" | "server_restarted" => 4,
         "resource_busy" => 5,
         "platform_not_supported" => 6,
         "policy_denied" | "permission_denied" | "auth_required" => 7,
         _ => 1,
     }
+}
+
+/// `--param k=v`：拆成 (key, raw value)，JSON 解析在调用侧完成。
+fn parse_param(raw: &str) -> Result<(String, String), String> {
+    let (key, value) = raw
+        .split_once('=')
+        .ok_or_else(|| format!("expected k=v, got '{raw}'"))?;
+    if key.trim().is_empty() {
+        return Err(format!("parameter name is empty in '{raw}'"));
+    }
+    Ok((key.trim().to_string(), value.to_string()))
 }
 
 /// Daemon-level failures travel as `<code>: <message>` strings (see

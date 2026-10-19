@@ -83,6 +83,10 @@ pub enum ToolName {
     SemanticAction,
     VerifyState,
     AgentStep,
+    RecorderStart,
+    RecorderStop,
+    ScriptRun,
+    FileHash,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -98,7 +102,7 @@ pub struct ToolMeta {
 }
 
 impl ToolName {
-    pub const ALL: [ToolName; 36] = [
+    pub const ALL: [ToolName; 40] = [
         Self::Mouse,
         Self::MouseDrag,
         Self::Input,
@@ -135,6 +139,10 @@ impl ToolName {
         Self::SemanticAction,
         Self::VerifyState,
         Self::AgentStep,
+        Self::RecorderStart,
+        Self::RecorderStop,
+        Self::ScriptRun,
+        Self::FileHash,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -431,6 +439,38 @@ impl ToolName {
                 true,
                 true,
             ),
+            Self::RecorderStart => meta(
+                "desktop_recorder_start",
+                "Start recording session tool calls into a deskctl-script/1 document (one recorder per session).",
+                RiskClass::BoundedWrite,
+                false,
+                false,
+                false,
+            ),
+            Self::RecorderStop => meta(
+                "desktop_recorder_stop",
+                "Stop recording and export the script (optionally writing a .dscript.json file), returning script, stats and warnings.",
+                RiskClass::BoundedWrite,
+                false,
+                false,
+                false,
+            ),
+            Self::ScriptRun => meta(
+                "desktop_script_run",
+                "Validate, preflight and replay a deskctl-script/1 document step by step, returning a run report with outcome, handoff and per-step results.",
+                RiskClass::ExternalCommit,
+                false,
+                false,
+                false,
+            ),
+            Self::FileHash => meta(
+                "desktop_file_hash",
+                "Read a file's size and sha256 under the allowed input roots (readback verification for scripts).",
+                RiskClass::ReadOnly,
+                true,
+                false,
+                false,
+            ),
         }
     }
 
@@ -475,6 +515,7 @@ impl ToolName {
                             | Self::SemanticObserve
                             | Self::SemanticCandidate
                             | Self::VerifyState
+                            | Self::FileHash
                     )
             }
         }
@@ -528,6 +569,9 @@ fn meta(
             | "desktop_semantic_action"
             | "desktop_verify_state"
             | "desktop_agent_step"
+            | "desktop_recorder_start"
+            | "desktop_recorder_stop"
+            | "desktop_script_run"
     );
     let requires_observation = matches!(
         name,

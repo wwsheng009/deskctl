@@ -1,0 +1,33 @@
+{
+  "name": "desktop_recorder_stop",
+  "description": "Stop recording and export the script (optionally writing a .dscript.json file), returning script, stats and warnings.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "format": {
+        "type": "string",
+        "enum": [
+          "script"
+        ],
+        "default": "script"
+      },
+      "path": {
+        "type": "string",
+        "description": "Optional .dscript.json output path (allowed image roots policy)"
+      },
+      "allow_relaunch": {
+        "type": "boolean",
+        "description": "Override allow_relaunch for every recorded catalog target (default: the recorder's start value)"
+      }
+    },
+    "required": [],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_recorder_stop",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false
+  }
+}

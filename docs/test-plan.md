@@ -285,6 +285,44 @@ tests/fixtures/
 **观测**：`doctor` 的 `daemon.owner_limits` 输出 `max_sessions_per_owner`/`fairness` 与
 "标签（非鉴权）"说明。
 
+### 7.8 录制与回放（D3）
+
+**AC-RPL-001/002 录制**：会话内 `desktop_recorder_start {include_reads:"all", max_steps:N}` 后执行
+≥3 次真实调用 → `desktop_recorder_stop` 返回 `deskctl-script/1`（`v/format/name/created/targets/
+params/steps/notes`）；`max_steps` 与 256 KiB 上限触发后停止记录并写 `warnings`；同会话第二个
+recorder_start 返回 `resource_busy`。参数化断言：绑定 `hwnd` → `$target.<名>.hwnd`、
+`candidate_id` → `locator`（`app_id=$target.<名>.token`）、坐标步骤 `fragile=true`、
+`capture_id` 步骤 `volatile=true`、`dispatch_state=not_sent` 的失败步骤 `optional=true`。
+
+**AC-RPL-003/004 校验与 dry-run**：`deskctl script validate --file <path>` 纯本地执行（daemon 不在
+也可用），未知工具/未解析变量/风险超限/版本错误分别给出 `issues[].code` 与退出码 2；`script_run
+{dry_run:true}` 不执行工具、不产生步骤审计，逐步输出 `execute|skip_fragile|reject_risk|
+reject_unknown_tool`，`outcome=null`。
+
+**AC-RPL-005/006 执行与重试**：真实 run 返回 `deskctl-run-report/1`（`run_id/started/finished/
+result/outcome/handoff/steps/rebinds/stats`）；每步审计 `request_id=<run_id>:<step>`，
+`deskctl history --run <run_id>` 恰好返回该 run 的步骤；`on_error=stop|continue` 行为正确；
+仅 `dispatch_state=not_sent` 的步骤按 `retry` 自动重试（`partial/unknown` 不重试）。
+
+**AC-RPL-007 目标解析与重绑**：录制后关闭应用 → preflight 经 `launch_ref` 受限启动并绑定，
+run report `relaunched=true`；执行中关闭窗口 → 单步自动重绑（预算 5 次）并在 `rebinds`
+记录 `reason/from_hwnd/to_hwnd/relaunched`；同名窗口 pid 不符 → `identity_mismatch`（默认拒绝，
+`strictness=loose` 放宽）；多命中 → `ambiguous_target` + `candidates`，可用 `--param <name>=<hwnd>`
+覆盖。
+
+**AC-RPL-008/009 核验与 outcome**：`verify.tier=screen` 走 `desktop_verify_state`；
+`tier=readback` 用 `desktop_file_hash`/`docx_read`/`xlsx_read`/`pptx_read` 读回比对；
+`require_readback=true` 但无 readback 时 preflight 拒绝；映射表全枚举：`not_sent` →
+`HALTED_BEFORE_EFFECT`，`partial/unknown` 或 readback 失败 → `RECONCILIATION_REQUIRED`，
+全部成功且有 readback → `VERIFIED`，无强核验 → `COMPLETED_UNVERIFIED`，预检拒绝 →
+`REJECTED_POLICY`，取消 → `CANCELED`。
+
+**AC-RPL-013/014 handoff 与并发**：三类失败（not_sent / partial / readback 失败）分别断言
+`handoff.failed_step/reason/effect_may_have_occurred/safe_to_retry/resume_hint/suggested_actions`；
+`RECONCILIATION_REQUIRED` 后 `--from` 默认拒绝（`resume_after_unknown`），
+`allow_resume_after_unknown=true` 可续跑；同会话第二个 `script_run` 返回 `resource_busy` +
+当前 `run_id`；不同会话可并发。
+
 ## 8. 端到端场景
 
 ### E2E-001 截图点击
@@ -382,6 +420,24 @@ target_bind {hwnd}（免 targets_list）-> semantic_action focus（text_field, o
 图像落盘；越界 `image_path` 的 `policy_denied` 消息内联允许根目录与 `DESKCTL_ALLOWED_INPUT_ROOT`/
 `capture_id` 两条出路；`window_activate` 返回 `attempts/method`，被隐藏（`visible=false`）的
 窗口在激活后恢复可见并可截图。
+
+### E2E-012 巡检录制 → 回放（D3）
+
+```text
+desktop_recorder_start {include_reads:"essential"}
+-> SAP ST06 巡检步骤（target_bind / semantic_action / input / window_screenshot / read_kv / 保存报告）
+-> desktop_recorder_stop -> plan.dscript.json
+-> 手工补充 verify {tier:"screen", kind:"text_present", value:"操作系统监控器"} 与 readback 断言
+-> deskctl script validate --file plan.dscript.json
+-> deskctl script run --file plan.dscript.json --dry-run
+-> deskctl script run --file plan.dscript.json --session <id>
+```
+
+通过标准：录制的 steps 数与手工 E2E-011 步骤数一致（允许差异附注原因）；`targets.*` 含
+description+fingerprint 且步骤内不出现裸 hwnd；dry-run 每步 `decision=execute` 且屏幕状态不变；
+真跑返回 `outcome`（声明 readback 时为 `VERIFIED`，否则 `COMPLETED_UNVERIFIED`）；
+关闭 SAP 窗口后重跑触发 `relaunched=true` 并成功；故意让某步 `not_sent` 失败时，
+`handoff.resume_hint.from_step` 指向失败步，修正 `--param` 后 `--from` 续跑成功。
 
 ## 9. 并发与压力测试
 

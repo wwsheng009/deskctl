@@ -90,10 +90,16 @@
 - 审计记录是本地证据（明文 JSONL、无签名与防篡改），用于复核与归因，不是安全边界；
   写入依赖"单行完整 JSON"的追加原子性。
 - 审计队列满时新记录会被丢弃（`audit_dropped` 计数行周期性提示）；`DESKCTL_AUDIT=off` 时
-  `history` 返回空并给出提示。run 产物目录（`runs\`）的保留策略已就绪，实际写入随 D3。
+  `history` 返回空并给出提示。run 产物目录（`runs\`）的保留策略已就绪，D3 的 run report
+  目前仅在工具结果中返回，尚未写入 `runs\`。
 - 审计在调用线程的固定开销（时间戳/digest/入队）约 +30–40 µs/call；对亚毫秒级微操作
   （如 `desktop_screen_size`）的相对占比会被放大，对 screenshot 类操作 p95 影响 ≤0.5%
   （见 performance-baseline §5）。
+- 录放（D3）限制：续跑 `--from` 时被跳过步骤产生的 `$var`/`$steps` 需由调用方用 `--param`
+  显式回填（未接入从 `history --run` 自动读取旧 run 结果）；`strict` 严格度要求的
+  `process_start_time` 在 Windows 平台层尚未暴露，实际退化为 pid+class+title；
+  `dry_run` 仍会解析/绑定目标（不执行工具、不写步骤审计）；录制内容仅存会话内存（≤256 KiB），
+  daemon 重启即丢失；脚本不支持条件分支/循环（线性 + `optional`/`on_error`/`retry`）。
 - owner 是归因标签，不是鉴权凭据：同机调用方可自报任意（非保留）owner 创建会话；会话隔离仍
   依赖 token 与本机 ACL。`DESKCTL_OWNER_MAX_SESSIONS` 默认 0（不限制），开启后按 owner 限制
   活跃会话数，超限 `resource_busy`（消息含现值，0 可关闭）。

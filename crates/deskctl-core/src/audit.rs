@@ -457,6 +457,9 @@ pub struct AuditRecord {
     pub ts: String,
     pub kind: &'static str,
     pub request_id: Option<String>,
+    /// Script run id when this call is a replay step (`request_id` is
+    /// `<run_id>:<step>`); `history --run` filters on it.
+    pub run_id: Option<String>,
     pub session_id: Option<String>,
     pub owner: String,
     pub source: &'static str,
@@ -478,6 +481,7 @@ pub struct AuditRecord {
 /// Raw inputs for one tool-call audit row.
 pub struct ToolCallInput<'a> {
     pub request_id: Option<String>,
+    pub run_id: Option<String>,
     pub session_id: Option<String>,
     pub owner: String,
     pub source: AuditSource,
@@ -494,12 +498,24 @@ pub struct ToolCallInput<'a> {
     pub data: Option<&'a Value>,
 }
 
+/// Extract the script-run id from a replay step `request_id` of the form
+/// `<run_id>:<step>` (D3 audit attribution, `history --run`).
+pub fn run_id_from_request_id(request_id: &str) -> Option<String> {
+    let (run_id, step) = request_id.split_once(':')?;
+    if run_id.starts_with("run-") && !step.is_empty() {
+        Some(run_id.to_string())
+    } else {
+        None
+    }
+}
+
 impl AuditRecord {
     pub fn tool_call(input: ToolCallInput<'_>) -> Self {
         Self {
             ts: now_ts(),
             kind: "tool_call",
             request_id: input.request_id,
+            run_id: input.run_id,
             session_id: input.session_id,
             owner: input.owner,
             source: input.source.as_str(),
@@ -525,6 +541,7 @@ impl AuditRecord {
             ts: now_ts(),
             kind: "audit_health",
             request_id: None,
+            run_id: None,
             session_id: None,
             owner: "system".to_string(),
             source: "system",
@@ -551,6 +568,9 @@ impl AuditRecord {
         obj.insert("kind".to_string(), Value::String(self.kind.to_string()));
         if let Some(value) = &self.request_id {
             obj.insert("request_id".to_string(), Value::String(value.clone()));
+        }
+        if let Some(value) = &self.run_id {
+            obj.insert("run_id".to_string(), Value::String(value.clone()));
         }
         if let Some(value) = &self.session_id {
             obj.insert("session_id".to_string(), Value::String(value.clone()));
@@ -1087,6 +1107,7 @@ mod tests {
     fn sample_record(args: Value) -> AuditRecord {
         AuditRecord::tool_call(ToolCallInput {
             request_id: Some("req-1".to_string()),
+            run_id: None,
             session_id: Some("sess-1".to_string()),
             owner: "agent:tester".to_string(),
             source: AuditSource::Daemon,

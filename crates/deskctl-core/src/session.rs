@@ -3,9 +3,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use deskctl_protocol::{ErrorCode, RiskClass, ToolError, ToolName, ToolProfile};
+use deskctl_protocol::{ErrorCode, RiskClass, ToolError, ToolName, ToolProfile, ToolResult};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+
+use crate::recorder::RecorderState;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ScreenRect {
@@ -135,6 +137,9 @@ pub struct Session {
     observation_ttl: Duration,
     last_used: Mutex<Instant>,
     pressed: Mutex<PressedState>,
+    recorder: Mutex<Option<RecorderState>>,
+    active_run: Mutex<Option<String>>,
+    last_run_outcome: Mutex<Option<String>>,
     closed: AtomicBool,
 }
 
@@ -158,6 +163,9 @@ impl Session {
             observation_ttl,
             last_used: Mutex::new(Instant::now()),
             pressed: Mutex::new(PressedState::default()),
+            recorder: Mutex::new(None),
+            active_run: Mutex::new(None),
+            last_run_outcome: Mutex::new(None),
             closed: AtomicBool::new(false),
         }
     }
@@ -211,6 +219,15 @@ impl Session {
         }
         if let Ok(mut observation) = self.observation.lock() {
             *observation = None;
+        }
+        if let Ok(mut recorder) = self.recorder.lock() {
+            *recorder = None;
+        }
+        if let Ok(mut run) = self.active_run.lock() {
+            *run = None;
+        }
+        if let Ok(mut outcome) = self.last_run_outcome.lock() {
+            *outcome = None;
         }
     }
 
@@ -286,6 +303,12 @@ impl Session {
             .and_then(|value| value.as_ref().map(|observation| observation.token.clone()));
         let pressed_buttons = self.pressed_ids(PressedKind::Button).len();
         let pressed_keys = self.pressed_ids(PressedKind::Key).len();
+        let recorder_active = self
+            .recorder
+            .lock()
+            .map(|value| value.is_some())
+            .unwrap_or(false);
+        let active_run = self.active_run.lock().ok().and_then(|value| value.clone());
         json!({
             "session_id": self.id,
             "profile": self.profile,
@@ -296,6 +319,8 @@ impl Session {
             "observation_token": observation,
             "pressed_buttons": pressed_buttons,
             "pressed_keys": pressed_keys,
+            "recorder_active": recorder_active,
+            "active_run": active_run,
             "last_used_ms_ago": self.last_used().elapsed().as_millis() as u64
         })
     }
@@ -445,6 +470,83 @@ impl Session {
             .lock()
             .map_err(|_| internal("observation table poisoned"))? = None;
         Ok(())
+    }
+
+    /// 录制器状态（D3）；跨模块借用，poisoned 时取回内部值继续。
+    pub(crate) fn recorder_mut(&self) -> std::sync::MutexGuard<'_, Option<RecorderState>> {
+        self.recorder
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub(crate) fn targets_snapshot(&self) -> Vec<TargetBinding> {
+        self.targets
+            .lock()
+            .map(|map| map.values().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn observation_snapshot(&self) -> Option<ObservationState> {
+        self.observation.lock().ok().and_then(|guard| guard.clone())
+    }
+
+    /// 引擎在每个工具调用结束后回调；录制器激活时才做步骤转换。
+    pub fn record_call(
+        &self,
+        tool: ToolName,
+        args: &Value,
+        result: &ToolResult,
+        request_id: Option<&str>,
+    ) {
+        if self.recorder_mut().is_none() {
+            return;
+        }
+        crate::recorder::note_call(self, tool, args, result, request_id);
+    }
+
+    /// 当前会话内正在执行的脚本 run id（D3 并发：每会话至多 1 个）。
+    pub fn active_run(&self) -> Option<String> {
+        self.active_run.lock().ok().and_then(|value| value.clone())
+    }
+
+    pub fn run_begin(&self, run_id: &str) -> Result<(), ToolError> {
+        let mut guard = self
+            .active_run
+            .lock()
+            .map_err(|_| internal("run state poisoned"))?;
+        if let Some(current) = guard.as_ref() {
+            if current != run_id {
+                return Err(ToolError::new(
+                    ErrorCode::ResourceBusy,
+                    format!("session already runs script {current}; wait for it to finish"),
+                )
+                .details(json!({ "run_id": current }))
+                .retryable(true));
+            }
+        }
+        *guard = Some(run_id.to_string());
+        Ok(())
+    }
+
+    pub fn run_end(&self) {
+        if let Ok(mut guard) = self.active_run.lock() {
+            *guard = None;
+        }
+    }
+
+    /// 上一次 run 的 outcome（同会话续跑门禁：`RECONCILIATION_REQUIRED`
+    /// 默认拒绝 `--from`，除非显式 `allow_resume_after_unknown`）。
+    pub fn set_last_run_outcome(&self, outcome: &str) {
+        if let Ok(mut guard) = self.last_run_outcome.lock() {
+            *guard = Some(outcome.to_string());
+        }
+    }
+
+    pub fn last_run_outcome(&self) -> Option<String> {
+        self.last_run_outcome
+            .lock()
+            .ok()
+            .and_then(|value| value.clone())
     }
 }
 

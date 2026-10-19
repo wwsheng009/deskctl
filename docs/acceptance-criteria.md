@@ -26,8 +26,9 @@
 
 ### AC-SCOPE-002 工具范围
 
-- 默认 `standard` profile 暴露 34 个核心工具。
-- `full` profile 暴露 36 个工具。
+- 默认 `standard` profile 暴露 38 个核心工具。
+- `full` profile 暴露 40 个工具（D3 新增 `desktop_recorder_start/stop`、
+  `desktop_script_run` 与只读 `desktop_file_hash`）。
 - 只有 `desktop_*`，不出现 `browser_*`、`workflow_*`、`agent_*` 工具。
 - `desktop_vision` 和 `desktop_agent_step` 仅在对应可选功能启用时出现。
 

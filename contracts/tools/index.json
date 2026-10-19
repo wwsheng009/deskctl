@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1.0",
   "profile": "full",
-  "count": 36,
+  "count": 40,
   "tools": [
     {
       "name": "desktop_mouse",
@@ -146,6 +146,22 @@
     {
       "name": "desktop_agent_step",
       "file": "desktop_agent_step.json"
+    },
+    {
+      "name": "desktop_recorder_start",
+      "file": "desktop_recorder_start.json"
+    },
+    {
+      "name": "desktop_recorder_stop",
+      "file": "desktop_recorder_stop.json"
+    },
+    {
+      "name": "desktop_script_run",
+      "file": "desktop_script_run.json"
+    },
+    {
+      "name": "desktop_file_hash",
+      "file": "desktop_file_hash.json"
     }
   ]
 }

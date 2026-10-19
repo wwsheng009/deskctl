@@ -1,0 +1,38 @@
+{
+  "name": "desktop_recorder_start",
+  "description": "Start recording session tool calls into a deskctl-script/1 document (one recorder per session).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "include_reads": {
+        "type": "string",
+        "enum": [
+          "essential",
+          "all",
+          "none"
+        ],
+        "default": "essential"
+      },
+      "max_steps": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 1000,
+        "default": 200
+      },
+      "allow_relaunch": {
+        "type": "boolean",
+        "default": true,
+        "description": "Record allow_relaunch=true for catalog-launched targets"
+      }
+    },
+    "required": [],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_recorder_start",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false
+  }
+}
