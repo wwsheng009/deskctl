@@ -38,7 +38,7 @@ fn exported_contracts_cover_full_profile() {
         &std::fs::read_to_string(directory.join("index.json")).expect("contracts index"),
     )
     .expect("contracts index JSON");
-    assert_eq!(index["count"], 40);
+    assert_eq!(index["count"], 42);
     assert_eq!(index["schema_version"], "0.1.0");
     for entry in index["tools"].as_array().expect("tools") {
         let file = entry["file"].as_str().expect("file");

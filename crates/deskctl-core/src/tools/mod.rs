@@ -1,4 +1,4 @@
-mod semantic;
+pub(crate) mod semantic;
 
 use std::path::Path;
 use std::sync::atomic::Ordering;
@@ -148,6 +148,8 @@ pub(crate) async fn execute_leaf(
             "desktop_script_run cannot be nested inside a script",
         )),
         ToolName::FileHash => file_hash(engine, args),
+        ToolName::CheckpointSave => crate::checkpoint::save(engine, session, args),
+        ToolName::CheckpointVerify => crate::checkpoint::verify(engine, session, args),
         ToolName::SemanticObserve
         | ToolName::SemanticCandidate
         | ToolName::SemanticExecute
@@ -2816,7 +2818,10 @@ fn images_differ(left: &image::RgbaImage, right: &image::RgbaImage) -> bool {
     left.dimensions() != right.dimensions() || left.as_raw() != right.as_raw()
 }
 
-fn normalize_image_path(engine: &Engine, value: &str) -> Result<std::path::PathBuf, ToolError> {
+pub(crate) fn normalize_image_path(
+    engine: &Engine,
+    value: &str,
+) -> Result<std::path::PathBuf, ToolError> {
     let path = Path::new(value);
     let absolute = if path.is_absolute() {
         path.to_path_buf()
@@ -2986,7 +2991,7 @@ fn dispatch_error(mut error: ToolError, state: DispatchState) -> ToolError {
     error
 }
 
-fn required_str<'a>(args: &'a Value, key: &str) -> Result<&'a str, ToolError> {
+pub(crate) fn required_str<'a>(args: &'a Value, key: &str) -> Result<&'a str, ToolError> {
     args.get(key)
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
@@ -3021,7 +3026,7 @@ fn required_u32(args: &Value, key: &str) -> Result<u32, ToolError> {
         .ok_or_else(|| invalid(format!("{key} must be a non-negative 32-bit integer")))
 }
 
-fn invalid(message: impl Into<String>) -> ToolError {
+pub(crate) fn invalid(message: impl Into<String>) -> ToolError {
     ToolError::new(ErrorCode::InvalidParams, message)
 }
 

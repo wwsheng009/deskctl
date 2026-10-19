@@ -2,7 +2,10 @@
 
 - 文档版本：0.1
 - 日期：2026-10-19
-- 状态：Draft（待评审）
+- 状态：已实施（D3，2026-10-19；实现见 `crates/deskctl-core/src/recorder.rs`、`script.rs`、
+  `crates/deskctl-cli/src/script_cmd.rs`；验证见 [../implementation-status.md](../implementation-status.md)
+  §1/§2 与 `crates/deskctl-cli/tests/script_contract.rs`；真机 SAP ST06 回归见
+  [../test-plan.md](../test-plan.md) §8）
 - 关联：[README.md](README.md)、[data-formats.md](data-formats.md)、[audit-history.md](audit-history.md)、[prior-art.md](prior-art.md)、[adr-001-script-engine.md](adr-001-script-engine.md)、[../acceptance-criteria.md](../acceptance-criteria.md)
 
 > 执行层选型见 **[ADR-001](adr-001-script-engine.md)**：默认自研声明式 JSON（L1），按需加受限表达式（L2），

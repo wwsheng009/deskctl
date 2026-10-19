@@ -615,7 +615,7 @@ fn sample_condition(
 
 /// 验证专用解析：不落到前台兜底，解析不到返回 None，
 /// 使 absent 类条件在窗口已关闭时仍可正确判定。
-fn resolve_locator_window_strict(
+pub(crate) fn resolve_locator_window_strict(
     session: &Session,
     locator: &Value,
 ) -> Result<Option<i64>, ToolError> {
@@ -781,7 +781,7 @@ fn resolve_locator_window(session: &Session, locator: &Value) -> Result<i64, Too
     })
 }
 
-fn locator_matches(node: &Value, locator: &Value) -> bool {
+pub(crate) fn locator_matches(node: &Value, locator: &Value) -> bool {
     if let Some(role) = locator.get("role").and_then(Value::as_str) {
         if node["role"].as_str() != Some(role) {
             return false;

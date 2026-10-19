@@ -89,6 +89,36 @@ pub fn observe_window(hwnd: i64, limit: usize) -> Result<Vec<UiNode>, ToolError>
         .collect())
 }
 
+/// 读取一个已知节点（opaque_id）的原始文本：优先 `ValuePattern.CurrentValue()`，
+/// 无值模式时回退到元素名称。密码字段（`secure=true`）永不返回文本。
+/// 节点在重观察后不存在时返回 `None`。
+pub fn read_node_value(hwnd: i64, opaque_id: &str) -> Result<Option<String>, ToolError> {
+    let _com = ComApartment::initialize()?;
+    let automation = create_automation()?;
+    let root = element_from_handle(&automation, hwnd)?;
+    let walker = unsafe { automation.ControlViewWalker() }
+        .map_err(|error| uia_error("create UIA walker", error))?;
+    let nodes = collect_nodes(&walker, root, hwnd, 1000)?;
+    let Some(node) = nodes
+        .iter()
+        .find(|candidate| candidate.public["opaque_id"].as_str() == Some(opaque_id))
+    else {
+        return Ok(None);
+    };
+    if node.public["secure"].as_bool().unwrap_or(false) {
+        return Ok(None);
+    }
+    let raw = unsafe {
+        node.element
+            .GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId)
+    }
+    .ok()
+    .and_then(|pattern| unsafe { pattern.CurrentValue() }.ok())
+    .map(|value| value.to_string())
+    .filter(|value| !value.is_empty());
+    Ok(raw.or_else(|| text(unsafe { node.element.CurrentName() }.ok())))
+}
+
 pub fn perform_action(
     hwnd: i64,
     node: &UiNode,

@@ -347,7 +347,10 @@ Windows 首个可用版本必须同时满足：
 > 逐项实现并通过验证后，从本节移入对应正式章节（第 3/4/6/7/9 节）并解除"规划中"标记。
 >
 > 进度：D1（审计与历史）已于 2026-10-19 实现并通过验证（见 §15.1）；D2（Agent 身份）已于 2026-10-19
-> 实现并通过验证（见 §15.2）；D3–D4 与其余独立小改动仍为规划中。
+> 实现并通过验证（见 §15.2）；D3（录制与回放）已于 2026-10-19 实现并通过验证（见 §15.3，真机
+> SAP ST06 E2E-012 待回归）；D4（检查点与补偿）已于 2026-10-19 实现并通过验证（见 §15.4，
+> 真机 GUI 差异样本待回归）；I1（输入模拟增强）已于 2026-10-19 实施（见 §15.6）；
+> AC-SEC-013（§15.5）仍为规划中。
 
 ### 15.1 审计与历史（D1，P0，已实施 2026-10-19）
 
@@ -383,7 +386,14 @@ Windows 首个可用版本必须同时满足：
 | AC-AGT-003 | 归因 | 审计与 `history --owner` 可按身份过滤；同会话内 owner 一致 |
 | AC-AGT-004 | 限额 | 开启 owner 会话上限后，超限返回 `resource_busy` 且不影响其他 owner |
 
-### 15.3 录制与回放（D3，P1）
+### 15.3 录制与回放（D3，P1，已实施 2026-10-19）
+
+> 已完成验证（AC-RPL-001..009/013/014）：证据见 [implementation-status.md](implementation-status.md)
+> §1 的 D3 行与 §2 已验证能力；判据测试在 `crates/deskctl-cli/tests/script_contract.rs`（录制→导出→
+> 校验→dry-run→真跑、并发 `resource_busy`、handoff/续跑、readback 门禁）与 `crates/deskctl-core/src/`
+> 的 recorder/script 单测；CLI 为 `deskctl record start|stop`、`deskctl script validate|run`。
+> 有意未实现：AC-RPL-010..012（L2/L3 脚本引擎）仍为规划中；真机 E2E-012 见
+> [test-plan.md](test-plan.md) §8。
 
 | 编号 | 验收项 | 通过标准 |
 |---|---|---|
@@ -401,7 +411,13 @@ Windows 首个可用版本必须同时满足：
 | AC-RPL-012 | 引擎运行可追溯（L3，仅启用时） | 每次 Rhai run 产出 `expanded.jsonl`，与审计逐条一致（`run_id`/`step_index`）；Generator 模式产物为合法 `deskctl-script/1` 且可被 L1 校验/执行；同脚本 + 录制 transcript 的两次运行展开序列一致（确定性） |
 | AC-RPL-013 | 失败接手契约 | run report 含 `handoff`（`failed_step`/`reason`/`effect_may_have_occurred`/`safe_to_retry`/`resume_hint`/`suggested_actions`）；`HALTED_BEFORE_EFFECT` 时 `safe_to_retry=true` 且 `resume_hint.from_step` 指向失败步；`RECONCILIATION_REQUIRED` 时 `safe_to_retry=false` 且建议"先核对"；LLM 修正参数后 `script_run --from <step>` 能在同一会话续跑成功（目标/变量按 §4.6 规则重建） |
 
-### 15.4 检查点与补偿（D4，P2）
+### 15.4 检查点与补偿（D4，P2，已实施 2026-10-19）
+
+> 已完成验证（AC-TXN-001..003）：证据见 [implementation-status.md](implementation-status.md) §1 的
+> D4 行与 §2 已验证能力；判据测试在 `crates/deskctl-cli/tests/checkpoint_contract.rs`（导出/读回、
+> 配额与命名、`rect` 差异四类、`script run --checkpoint/--compensation/--apply-compensation`、
+> `purpose=compensation` 默认 dry-run）与 `crates/deskctl-core/src/checkpoint.rs` 单测；
+> 真机 GUI 差异样本见 [test-plan.md](test-plan.md) §8 的 E2E-013。
 
 | 编号 | 验收项 | 通过标准 |
 |---|---|---|

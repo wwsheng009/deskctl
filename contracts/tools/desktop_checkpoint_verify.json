@@ -1,0 +1,35 @@
+{
+  "name": "desktop_checkpoint_verify",
+  "description": "Compare the current desktop state against a saved, inline or exported checkpoint and return matched/diffs.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "description": "Saved checkpoint name in this session"
+      },
+      "checkpoint": {
+        "type": "object",
+        "description": "Inline deskctl-checkpoint/1 document"
+      },
+      "path": {
+        "type": "string",
+        "description": "Exported checkpoint file path"
+      },
+      "values_only": {
+        "type": "boolean",
+        "default": false,
+        "description": "Compare only sampled values; skip window rect checks"
+      }
+    },
+    "required": [],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_checkpoint_verify",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

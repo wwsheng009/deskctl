@@ -1,4 +1,4 @@
-//! Public JSON Schemas for the complete 40-tool surface.
+//! Public JSON Schemas for the complete 42-tool surface.
 
 use serde_json::{json, Value};
 
@@ -508,6 +508,51 @@ pub fn input_schema(name: ToolName) -> Value {
             }),
             &["path"],
         ),
+        ToolName::CheckpointSave => object(
+            json!({
+                "name": { "type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[a-z0-9._-]{1,32}$", "description": "Checkpoint name (lowercase letters, digits, dot, underscore, dash)" },
+                "targets": {
+                    "type": "array",
+                    "maxItems": 16,
+                    "description": "Windows to snapshot (hwnd, a match spec, or a bound session target with the same name)",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": { "type": "string", "minLength": 1 },
+                            "hwnd": { "type": "integer" },
+                            "match": { "type": "object", "description": "Window match spec: process_name / class_name / title_contains" }
+                        },
+                        "required": ["name"]
+                    }
+                },
+                "values": {
+                    "type": "array",
+                    "maxItems": 32,
+                    "description": "Key values sampled through UIA locators",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": { "type": "string", "minLength": 1 },
+                            "locator": { "type": "object" },
+                            "kind": { "type": "string", "enum": ["value", "checked", "exists"] }
+                        },
+                        "required": ["name", "locator"]
+                    }
+                },
+                "capture_ids": { "type": "array", "maxItems": 16, "items": { "type": "string" } },
+                "path": { "type": "string", "description": "Optional deskctl-checkpoint/1 export path (allowed image roots policy)" }
+            }),
+            &["name"],
+        ),
+        ToolName::CheckpointVerify => object(
+            json!({
+                "name": { "type": "string", "description": "Saved checkpoint name in this session" },
+                "checkpoint": { "type": "object", "description": "Inline deskctl-checkpoint/1 document" },
+                "path": { "type": "string", "description": "Exported checkpoint file path" },
+                "values_only": { "type": "boolean", "default": false, "description": "Compare only sampled values; skip window rect checks" }
+            }),
+            &[],
+        ),
     }
 }
 
@@ -551,8 +596,8 @@ mod tests {
 
     #[test]
     fn descriptors_have_stable_counts_and_names() {
-        assert_eq!(tool_descriptors(ToolProfile::Standard).len(), 38);
-        assert_eq!(tool_descriptors(ToolProfile::Full).len(), 40);
+        assert_eq!(tool_descriptors(ToolProfile::Standard).len(), 40);
+        assert_eq!(tool_descriptors(ToolProfile::Full).len(), 42);
         for descriptor in tool_descriptors(ToolProfile::Full) {
             assert!(descriptor["name"]
                 .as_str()

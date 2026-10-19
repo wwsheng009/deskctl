@@ -138,7 +138,7 @@ tests/fixtures/
 
 ### 6.1 工具契约
 
-- `standard` 26 个工具，`full` 28 个
+- `standard` 40 个工具，`full` 42 个（`readonly` 25、`minimal` 6）
 - 每个 Schema 都有执行器
 - 工具名稳定，不出现非 `desktop_*`
 - 工具元数据包含 `requires_session`、`requires_observation`
@@ -323,6 +323,21 @@ run report `relaunched=true`；执行中关闭窗口 → 单步自动重绑（�
 `allow_resume_after_unknown=true` 可续跑；同会话第二个 `script_run` 返回 `resource_busy` +
 当前 `run_id`；不同会话可并发。
 
+**AC-TXN-001/002 检查点**：`desktop_checkpoint_save` → `desktop_checkpoint_verify` 往返
+`matched=true`；第 9 个新名字 `resource_busy`（exit 5）、同名可覆盖、非法名字/未知名
+`invalid_params`（exit 2）；导出文件（允许根内，含尚不存在的目标文件）可原样读回；
+窗口关闭后 `verify` 返回 `rect` 差异且 `missing=true`；`values_only=true` 跳过矩形比较；
+四类差异（`value`/`checked`/`exists`/`rect`）各有单测样本（`checkpoint.rs` 单测）。
+
+**AC-TXN-003 补偿**：`script run --checkpoint <name>` 的 report 含
+`checkpoint{name,matched,diffs,checked}`，且该名字随后可作为普通会话检查点校验；
+失败 run（`HALTED_BEFORE_EFFECT`）带 `--compensation` 时默认只产生 dry-run 补偿计划
+（`compensation.applied=false`、计划步骤 `decision=execute`、零派发），
+`--apply-compensation` 时真实执行（`applied=true`、内层 `dry_run=false`、`result=ok`）；
+补偿脚本自身失败只记录 `compensation.error`，不改变主 run 结果；脚本
+`purpose=compensation` 未显式给 `dry_run` 时为 dry-run，显式 `dry_run=false` 才执行
+（契约测试 `crates/deskctl-cli/tests/checkpoint_contract.rs`）。
+
 ## 8. 端到端场景
 
 ### E2E-001 截图点击
@@ -438,6 +453,22 @@ description+fingerprint 且步骤内不出现裸 hwnd；dry-run 每步 `decision
 真跑返回 `outcome`（声明 readback 时为 `VERIFIED`，否则 `COMPLETED_UNVERIFIED`）；
 关闭 SAP 窗口后重跑触发 `relaunched=true` 并成功；故意让某步 `not_sent` 失败时，
 `handoff.resume_hint.from_step` 指向失败步，修正 `--param` 后 `--from` 续跑成功。
+
+### E2E-013 检查点 → 变更 → 补偿（D4，可选真机项）
+
+```text
+desktop_checkpoint_save {name:"before", targets:[SAP 主窗口], values:[{name:"cpu", locator:...}]}
+-> 手工在 SOP 里做出可疑变更（或移动窗口）
+-> desktop_checkpoint_verify {name:"before"} -> diffs 显示 rect/value 变化
+-> deskctl script run --file incident.dscript.json --session <id>
+   （脚本故意失败）--compensation undo.dscript.json
+-> 默认 dry-run 补偿计划 -> 追加 --apply-compensation 真实回滚
+-> desktop_checkpoint_verify {name:"before"} -> 值恢复
+```
+
+通过标准：`diffs` 的 `kind` 与人工改动一致（矩形移动/值变化各至少一例）；dry-run 补偿
+不产生输入派发；`--apply-compensation` 后校验恢复（或如实返回残余差异）；全过程
+`history --run <run_id>` 可复盘补偿步骤（`request_id=<compensation_run_id>:<step>`）。
 
 ## 9. 并发与压力测试
 

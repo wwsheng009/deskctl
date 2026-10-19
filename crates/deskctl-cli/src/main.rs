@@ -223,6 +223,16 @@ enum ScriptCommands {
         allow_resume_after_unknown: bool,
         #[arg(long)]
         no_fragile: bool,
+        /// Save this checkpoint before running and verify it after the run
+        /// (and after any compensation).
+        #[arg(long)]
+        checkpoint: Option<String>,
+        /// Compensation script (`deskctl-script/1` JSON) executed when the run fails.
+        #[arg(long)]
+        compensation: Option<PathBuf>,
+        /// Apply the compensation for real (default: only produce a dry-run plan).
+        #[arg(long)]
+        apply_compensation: bool,
         #[arg(long)]
         socket: Option<String>,
         #[arg(long)]
@@ -598,6 +608,9 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
                 allow_external_commit,
                 allow_resume_after_unknown,
                 no_fragile,
+                checkpoint,
+                compensation,
+                apply_compensation,
                 socket,
                 token_file,
                 session_token,
@@ -621,6 +634,9 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
                         allow_external_commit,
                         allow_resume_after_unknown,
                         no_fragile,
+                        checkpoint,
+                        compensation: compensation.as_deref(),
+                        apply_compensation,
                     },
                 )
                 .await?;

@@ -87,6 +87,8 @@ pub enum ToolName {
     RecorderStop,
     ScriptRun,
     FileHash,
+    CheckpointSave,
+    CheckpointVerify,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -102,7 +104,7 @@ pub struct ToolMeta {
 }
 
 impl ToolName {
-    pub const ALL: [ToolName; 40] = [
+    pub const ALL: [ToolName; 42] = [
         Self::Mouse,
         Self::MouseDrag,
         Self::Input,
@@ -143,6 +145,8 @@ impl ToolName {
         Self::RecorderStop,
         Self::ScriptRun,
         Self::FileHash,
+        Self::CheckpointSave,
+        Self::CheckpointVerify,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -153,7 +157,7 @@ impl ToolName {
         match self {
             Self::Mouse => meta(
                 "desktop_mouse",
-                "Mouse click, double-click, hover, move, scroll, or read cursor position.",
+                "Mouse click, double-click, hover, move (absolute or relative), press/release, scroll, or read cursor position.",
                 RiskClass::BoundedWrite,
                 false,
                 false,
@@ -161,7 +165,7 @@ impl ToolName {
             ),
             Self::MouseDrag => meta(
                 "desktop_mouse_drag",
-                "Drag the mouse from a start point to an end point.",
+                "Drag the mouse from a start point to an end point, optionally with a human-like trajectory.",
                 RiskClass::BoundedWrite,
                 false,
                 false,
@@ -169,7 +173,7 @@ impl ToolName {
             ),
             Self::Input => meta(
                 "desktop_input",
-                "Type text or send a hotkey to the foreground or a target window.",
+                "Type text, send a hotkey, or press/release a single key (name, VK code, or scancode) to the foreground or a target window.",
                 RiskClass::BoundedWrite,
                 false,
                 false,
@@ -471,6 +475,22 @@ impl ToolName {
                 false,
                 false,
             ),
+            Self::CheckpointSave => meta(
+                "desktop_checkpoint_save",
+                "Save a checkpoint of windows, targets, key values and captures into the session (max 8); optionally export it as deskctl-checkpoint/1.",
+                RiskClass::BoundedWrite,
+                false,
+                false,
+                false,
+            ),
+            Self::CheckpointVerify => meta(
+                "desktop_checkpoint_verify",
+                "Compare the current desktop state against a saved, inline or exported checkpoint and return matched/diffs.",
+                RiskClass::ReadOnly,
+                true,
+                false,
+                false,
+            ),
         }
     }
 
@@ -572,6 +592,8 @@ fn meta(
             | "desktop_recorder_start"
             | "desktop_recorder_stop"
             | "desktop_script_run"
+            | "desktop_checkpoint_save"
+            | "desktop_checkpoint_verify"
     );
     let requires_observation = matches!(
         name,

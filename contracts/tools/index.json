@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1.0",
   "profile": "full",
-  "count": 40,
+  "count": 42,
   "tools": [
     {
       "name": "desktop_mouse",
@@ -162,6 +162,14 @@
     {
       "name": "desktop_file_hash",
       "file": "desktop_file_hash.json"
+    },
+    {
+      "name": "desktop_checkpoint_save",
+      "file": "desktop_checkpoint_save.json"
+    },
+    {
+      "name": "desktop_checkpoint_verify",
+      "file": "desktop_checkpoint_verify.json"
     }
   ]
 }

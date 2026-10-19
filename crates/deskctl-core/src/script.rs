@@ -168,6 +168,8 @@ pub struct Script {
     pub params: Map<String, Value>,
     pub steps: Vec<ScriptStep>,
     pub notes: Vec<String>,
+    /// `normal`（默认）或 `compensation`（补偿脚本，默认 dry-run）。
+    pub purpose: Option<String>,
 }
 
 /// 校验/预检问题（结构性问题 → invalid_params；策略问题 → policy_denied）。
@@ -287,6 +289,18 @@ pub fn parse_document(document: &Value) -> Result<Script, Vec<Issue>> {
             )])
         }
     };
+    let purpose = match object.get("purpose") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(value)) if matches!(value.as_str(), "normal" | "compensation") => {
+            Some(value.clone())
+        }
+        Some(other) => {
+            return Err(vec![Issue::new(
+                "invalid_format",
+                format!("purpose must be normal/compensation, got {other}"),
+            )])
+        }
+    };
     let Some(steps_value) = object.get("steps").and_then(Value::as_array) else {
         return Err(vec![Issue::new(
             "invalid_format",
@@ -333,6 +347,7 @@ pub fn parse_document(document: &Value) -> Result<Script, Vec<Issue>> {
         params,
         steps,
         notes,
+        purpose,
     })
 }
 
@@ -701,6 +716,10 @@ pub struct RunOptions {
     pub allow_external_commit: bool,
     pub allow_resume_after_unknown: bool,
     pub no_fragile: bool,
+    /// D4：运行前保存、运行后校验的检查点名（`desktop_script_run.checkpoint`）。
+    pub checkpoint: Option<String>,
+    /// D4：失败时的补偿脚本 `{script?|path?, apply?}`。
+    pub compensation: Option<Value>,
 }
 
 pub fn parse_options(args: &Value) -> Result<RunOptions, ToolError> {
@@ -718,6 +737,28 @@ pub fn parse_options(args: &Value) -> Result<RunOptions, ToolError> {
         None | Some(Value::Null) => Map::new(),
         Some(Value::Object(map)) => map.clone(),
         Some(_) => return Err(invalid("params must be an object")),
+    };
+    let checkpoint = match args.get("checkpoint") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(name)) => {
+            crate::checkpoint::validate_name(name)?;
+            Some(name.clone())
+        }
+        Some(_) => return Err(invalid("checkpoint must be a string name")),
+    };
+    let compensation = match args.get("compensation") {
+        None | Some(Value::Null) => None,
+        Some(Value::Object(spec)) => {
+            let has_script = spec.get("script").is_some_and(Value::is_object);
+            let has_path = spec.get("path").and_then(Value::as_str).is_some();
+            if has_script == has_path {
+                return Err(invalid(
+                    "compensation needs exactly one of script (inline) or path (file)",
+                ));
+            }
+            Some(Value::Object(spec.clone()))
+        }
+        Some(_) => return Err(invalid("compensation must be an object")),
     };
     Ok(RunOptions {
         dry_run: args
@@ -750,6 +791,8 @@ pub fn parse_options(args: &Value) -> Result<RunOptions, ToolError> {
             .get("no_fragile")
             .and_then(Value::as_bool)
             .unwrap_or(false),
+        checkpoint,
+        compensation,
     })
 }
 
@@ -2113,12 +2156,28 @@ pub async fn run(
     args: &Value,
     cancel: &CancelFlag,
 ) -> Result<ToolExecution, ToolError> {
-    let options = parse_options(args)?;
+    run_with(engine, session, args, cancel, false).await
+}
+
+/// `nested=true` 时不占用会话的 run 槽（供补偿子运行使用，避免与主 run 冲突）。
+async fn run_with(
+    engine: &Arc<Engine>,
+    session: &Arc<Session>,
+    args: &Value,
+    cancel: &CancelFlag,
+    nested: bool,
+) -> Result<ToolExecution, ToolError> {
+    let mut options = parse_options(args)?;
     let document = load_document(engine, args)?;
     let script = match parse_document(&document) {
         Ok(script) => script,
         Err(issues) => return Err(rejected(issues, "script", &[])),
     };
+    // D4/AC-TXN-003：`purpose=compensation` 的脚本默认 dry-run；调用方显式
+    // 传 `dry_run` 时以其为准（补偿子运行的 dry_run 由 apply 决定）。
+    if script.purpose.as_deref() == Some("compensation") && args.get("dry_run").is_none() {
+        options.dry_run = true;
+    }
     let plan = match preflight(session, &script, &options) {
         Ok(plan) => plan,
         Err(issues) => return Err(rejected(issues, &script.name, &[])),
@@ -2126,7 +2185,7 @@ pub async fn run(
     if options.dry_run {
         return Ok(ToolExecution::read(dry_run_report(&plan, &plan.warnings)));
     }
-    execute_plan(engine, session, plan, cancel).await
+    execute_plan(engine, session, plan, cancel, nested).await
 }
 
 /// `deskctl script validate` 的静态校验入口（不触达会话/平台状态）。
@@ -2151,6 +2210,7 @@ pub fn validate_document(
                     params: Map::new(),
                     steps: Vec::new(),
                     notes: Vec::new(),
+                    purpose: None,
                 }),
                 issues,
             )
@@ -2179,10 +2239,15 @@ async fn execute_plan(
     session: &Arc<Session>,
     plan: Plan,
     cancel: &CancelFlag,
+    nested: bool,
 ) -> Result<ToolExecution, ToolError> {
     let run_id = format!("run-{}", &Uuid::new_v4().simple().to_string()[..8]);
-    session.run_begin(&run_id)?;
-    let _guard = RunGuard { session };
+    let _guard = if nested {
+        None
+    } else {
+        session.run_begin(&run_id)?;
+        Some(RunGuard { session })
+    };
     let started_at = chrono::Local::now();
     let started = Instant::now();
 
@@ -2213,6 +2278,20 @@ async fn execute_plan(
     let mut first_failure: Option<FailureRecord> = None;
     let mut any_dispatched = false;
     let mut canceled = false;
+
+    // D4：运行前保存检查点（dry-run 已在上面提前返回，不触达状态）。
+    if let Some(name) = plan.options.checkpoint.as_deref() {
+        let targets: Vec<Value> = plan
+            .targets
+            .values()
+            .map(|target| json!({ "name": target.name, "hwnd": target.hwnd }))
+            .collect();
+        crate::checkpoint::save(
+            engine,
+            session,
+            &json!({ "name": name, "targets": targets }),
+        )?;
+    }
 
     let steps: Vec<ScriptStep> = plan.script.steps[plan.from..plan.to].to_vec();
     for (offset, step) in steps.iter().enumerate() {
@@ -2296,6 +2375,29 @@ async fn execute_plan(
         let _ = offset;
     }
 
+    // D4：失败时的补偿。`apply=false`（默认）只生成 dry-run 补偿计划，不下发输入。
+    let mut compensation = Value::Null;
+    if first_failure.is_some() {
+        if let Some(spec) = plan.options.compensation.clone() {
+            compensation = Box::pin(run_compensation(engine, session, &spec, cancel)).await;
+        }
+    }
+
+    // D4：收尾检查点校验（成功与失败都做），放在补偿之后以反映最终状态。
+    let mut checkpoint_report = Value::Null;
+    if let Some(name) = plan.options.checkpoint.as_deref() {
+        checkpoint_report =
+            match crate::checkpoint::verify(engine, session, &json!({ "name": name })) {
+                Ok(execution) => execution.data,
+                Err(error) => json!({
+                    "name": name,
+                    "matched": Value::Null,
+                    "diffs": [],
+                    "error": { "code": error.code.as_str(), "message": error.message }
+                }),
+            };
+    }
+
     let finished_at = chrono::Local::now();
     let (result, outcome) = classify(first_failure.as_ref(), canceled, &stats);
     let handoff = build_handoff(&run_id, outcome, first_failure.as_ref(), &plan);
@@ -2334,6 +2436,8 @@ async fn execute_plan(
         "rebinds": rebinds,
         "relaunched": relaunched,
         "targets": targets,
+        "checkpoint": checkpoint_report,
+        "compensation": compensation,
         "warnings": warnings,
         "stats": {
             "total": stats.total,
@@ -2365,6 +2469,71 @@ async fn execute_plan(
         verification,
         requires_observation: true,
     })
+}
+
+/// D4：主运行失败后的补偿子运行（AC-TXN-003）。
+///
+/// - `apply=false`（默认）：只把补偿脚本编译成 dry-run 计划，不下发真实输入；
+/// - `apply=true`：真实执行，但风险上限固定 `bounded_write`、`on_error=stop`，
+///   且不再触发二级补偿（避免递归放大风险）；
+/// - 补偿自身失败不改写主运行的结果，只记录在 `compensation.error`。
+async fn run_compensation(
+    engine: &Arc<Engine>,
+    session: &Arc<Session>,
+    spec: &Value,
+    cancel: &CancelFlag,
+) -> Value {
+    let apply = spec.get("apply").and_then(Value::as_bool).unwrap_or(false);
+    let document = if let Some(inline) = spec.get("script").filter(|value| value.is_object()) {
+        inline.clone()
+    } else if let Some(raw) = spec.get("path").and_then(Value::as_str) {
+        match crate::tools::normalize_allowed_path(engine, raw) {
+            Ok(path) => match std::fs::read(&path) {
+                Ok(bytes) => match serde_json::from_slice::<Value>(&bytes) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        return compensation_error(
+                            apply,
+                            "invalid_params",
+                            &format!(
+                                "compensation file {} is not valid JSON: {error}",
+                                path.display()
+                            ),
+                        )
+                    }
+                },
+                Err(error) => {
+                    return compensation_error(
+                        apply,
+                        "invalid_params",
+                        &format!("cannot read compensation file {}: {error}", path.display()),
+                    )
+                }
+            },
+            Err(error) => return compensation_error(apply, error.code.as_str(), &error.message),
+        }
+    } else {
+        return compensation_error(
+            apply,
+            "invalid_params",
+            "compensation needs exactly one of script (inline) or path (file)",
+        );
+    };
+    let inner = json!({
+        "script": document,
+        "dry_run": !apply,
+        "risk_max": "bounded_write",
+        "on_error": "stop"
+    });
+    // 递归点必须 Box::pin：run_with -> execute_plan -> run_compensation -> run_with。
+    match Box::pin(run_with(engine, session, &inner, cancel, true)).await {
+        Ok(execution) => json!({ "applied": apply, "report": execution.data }),
+        Err(error) => compensation_error(apply, error.code.as_str(), &error.message),
+    }
+}
+
+fn compensation_error(applied: bool, code: &str, message: &str) -> Value {
+    json!({ "applied": applied, "error": { "code": code, "message": message } })
 }
 
 /// 一步的完整执行（含重绑、重试、核验、断言）。
@@ -3045,6 +3214,7 @@ mod tests {
         let script = Script {
             name: "destructive".into(),
             created: None,
+            purpose: None,
             targets: Map::new(),
             params: Map::new(),
             steps: vec![ScriptStep {
@@ -3149,6 +3319,8 @@ mod tests {
                 allow_external_commit: false,
                 allow_resume_after_unknown: false,
                 no_fragile: false,
+                checkpoint: None,
+                compensation: None,
             },
             from: 0,
             to: 2,

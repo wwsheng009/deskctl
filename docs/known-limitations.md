@@ -108,4 +108,14 @@
 - MCP `clientInfo.version` 只写入服务日志（stderr，受 `DESKCTL_LOG` 控制），不参与身份与审计
   字段；`clientInfo.name` 缺失/为空时为 `mcp:unknown`，名称会小写化并按 `[a-z0-9._:@-]`
   清洗（非法字符→`-`）且截断至 60 字符。
+- 检查点（D4）限制：检查点存于**会话内存**（单会话上限 8 个，同名覆盖，daemon 重启或会话关闭
+  即失效），导出文件只是 `deskctl-checkpoint/1` JSON 快照、不随会话状态更新；差异校验只覆盖
+  四类（`value`/`checked`/`exists`/窗口 `rect`），不做语义树或截图的逐像素比对；`values[]`
+  采样依赖控件的 UIA 值（`ValuePattern.CurrentValue`，无值模式回退 `CurrentName`，
+  `IsPassword` 永不返回），无 UIA 值的控件读回为空。
+- 补偿（D4）限制：`script run --compensation` 默认只产出 dry-run 补偿计划，
+  `--apply-compensation` 才真实执行；补偿子运行风险上限固定 `bounded_write`、`on_error=stop`，
+  且不再触发二级补偿（自身失败只记录在 report 的 `compensation.error`，不改变主运行结果）；
+  补偿脚本的 `path` 输入与检查点导出共用允许图像根策略（`DESKCTL_ALLOW_ANY_INPUT`/
+  `DESKCTL_ALLOWED_INPUT_ROOT` 可放开）。
 

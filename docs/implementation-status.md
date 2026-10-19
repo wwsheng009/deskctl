@@ -21,6 +21,7 @@
 | D1 审计与历史 | 完成 | daemon/oneshot/MCP 全链路审计（JSONL v1：basic/full、文本 digest、键名单脱敏、轮转/保留/总量清理、写失败降级 disabled）；`deskctl history`（session/owner/tool/run/since/until/failed-only/kind/limit/json/summary/dir）；协议与工具数不变；契约测试 7 + 单测 15；开销 A/B p95 ≤0.5%（见 performance-baseline §5） |
 | D2 Agent 身份 | 完成 | `session create --owner`（小写规范化、`[a-zA-Z0-9._:@-]`、1..64、保留名拒绝）；MCP `clientInfo.name`→`mcp:<name>`（缺失 `mcp:unknown`）；`session list --owner` 精确过滤；`DESKCTL_OWNER_MAX_SESSIONS` per-owner 限额（超限 `resource_busy`）且不影响其他 owner；审计归因与 `history --owner`（`prefix*` 通配）/`by_owner`（p50/p95）；`doctor.owner_limits`；协议与工具数不变；契约测试 4 + 单测 3 |
 | D3 录制与回放 | 完成（E2E-012 真机 SAP 流程待回归） | `desktop_recorder_start/stop`（会话内单录制器、include_reads、max_steps/256KiB 上限、`allow_relaunch` 覆盖）、`desktop_script_run`（解析/静态校验/preflight/dry-run/逐步执行/重试/重绑/核验/run report/outcome/handoff）、`desktop_file_hash`（readback 强核验）；目标描述+指纹解析（strict/balanced/loose、歧义/指纹不符/stale 分码、`launch_ref` 受限重启、5 次重绑预算）；审计 `run_id` + `history --run`；CLI `record start/stop --out`、`script validate|run`；工具数 36 → 40（standard 34 → 38）；契约测试 3 + 单测 19 |
+| D4 检查点与补偿 | 完成（真机 GUI 差异样本待回归） | `desktop_checkpoint_save/verify`（会话内存、单会话 8 个同名覆盖、命名 `[a-z0-9._-]{1,32}`、导出/读取 `deskctl-checkpoint/1` 共用允许根策略）；四类差异 `value`/`checked`/`exists`/`rect`（`values_only` 跳过矩形，窗口消失记 `missing`）；`script_run` 的 `checkpoint`（运行前保存 + 收尾校验进 report）与 `compensation`（默认 dry-run 计划，`apply`/`--apply-compensation` 才执行，固定 `bounded_write` + `on_error=stop`、不做二级补偿）；`purpose=compensation` 默认 dry-run；CLI `script run --checkpoint/--compensation/--apply-compensation`；工具数 40 → 42（standard 38 → 40）；顺带修复允许根策略对"尚不存在文件"的误拒（Windows `canonicalize` verbatim 前缀）；契约测试 4 + 单测 5 |
 
 ## 2. 已验证能力
 
@@ -142,16 +143,27 @@
   `handoff` 含 `run_id/failed_step/reason/effect_may_have_occurred/safe_to_retry/resume_hint/
   suggested_actions`；`RECONCILIATION_REQUIRED` 后 `--from` 默认拒绝，需
   `allow_resume_after_unknown=true`；同会话并发 run 返回 `resource_busy` + 当前 `run_id`
+- D4 检查点（AC-TXN-001/002）：`desktop_checkpoint_save` 采样目标窗口矩形/key 值/capture
+  并存入会话（第 9 个新名字 `resource_busy`，同名可覆盖；非法名字 `invalid_params`），
+  可导出为 `deskctl-checkpoint/1` 文件并原样读回校验；`desktop_checkpoint_verify` 支持
+  会话名 / 内联文档 / 文件三选一（互斥校验），返回 `matched/diffs/checked`，差异为
+  `value`/`checked`/`exists`/`rect` 四类，窗口不存在时 `rect` 差异带 `missing=true`；
+  `values_only=true` 只比较采样值
+- D4 补偿（AC-TXN-003）：`desktop_script_run` 的 `checkpoint` 在运行前保存、运行（及补偿）
+  结束后校验并把结果放进 report 的 `checkpoint` 字段；`compensation` 在主运行失败时执行，
+  默认 `apply=false` 只产出 dry-run 计划（步骤零派发），`apply=true` 时以
+  `risk_max=bounded_write`+`on_error=stop` 真实执行且自身失败只记录 `compensation.error`；
+  脚本 `purpose=compensation` 未显式给 `dry_run` 时默认 dry-run
 
 ## 3. 测试状态
 
 `cargo test --workspace` 通过：
 
 ```text
-deskctl-cli:      30 passed（agent_identity 4、audit_history 7、cli_contract 3、mcp_smoke 4、script_contract 3、skills_contract 1、tool_contract 6、main 单测 2）
-deskctl-core:     98 passed（lib 92、path_policy 2、session_isolation 4）
+deskctl-cli:      34 passed（agent_identity 4、audit_history 7、checkpoint_contract 4、cli_contract 3、mcp_smoke 4、script_contract 3、skills_contract 1、tool_contract 6、main 单测 2）
+deskctl-core:    104 passed（lib 98、path_policy 2、session_isolation 4）
 deskctl-protocol:  3 passed
-合计:            131 passed, 0 failed
+合计:            141 passed, 0 failed
 ```
 
 `cargo fmt --all -- --check` 与 `cargo clippy --workspace --all-targets -- -D warnings` 均无告警
@@ -159,8 +171,8 @@ deskctl-protocol:  3 passed
 
 覆盖：
 
-- 40 工具 Schema 合法性
-- 38/40 profile 工具数量
+- 42 工具 Schema 合法性
+- 40/42 profile 工具数量
 - readonly 不暴露输入工具
 - 无 approve/reject/approval 工具
 - skills manifest 与工具名一致性
@@ -200,6 +212,15 @@ deskctl-protocol:  3 passed
 - D3 契约：录制 → 导出 → `script validate` → `script run --dry-run` → 真跑（`run_id` 审计分步）→
   同会话并发 `resource_busy`；预检拒绝（未知工具/风险超限/未解析变量）；`not_sent` 失败 handoff 与
   `--from` 续跑；`file_sha256` readback 通过/失败与续跑门禁（script_contract 3）
+- D4 检查点：导出 → 读回校验往返、命名/配额（第 9 个新名字 `resource_busy`、封顶后同名覆盖）、
+  窗口缺失 `rect` 差异 `missing=true`、`values_only` 跳过矩形（checkpoint 单测 4）
+- D4 契约：空检查点 save/verify、导出文件按 path 校验、未知名/非法名/name+path 互斥（exit 2）；
+  配额 `resource_busy`（exit 5）与覆盖、内联检查点 `rect` 差异、真实 hwnd 覆盖后 matched；
+  `script run --checkpoint` report 校验、失败脚本 dry-run 补偿零派发（exit 1）与
+  `--apply-compensation` 真跑（exit 0）；`purpose=compensation` 默认 dry-run 与显式真跑
+  （checkpoint_contract 4）
+- 允许根策略：根内不存在文件放行（Windows `canonicalize` 回退路径与 verbatim 根比较）、
+  根外拒绝（config 单测 2）
 
 ## 4. 运行时资源
 

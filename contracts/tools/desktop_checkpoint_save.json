@@ -1,0 +1,91 @@
+{
+  "name": "desktop_checkpoint_save",
+  "description": "Save a checkpoint of windows, targets, key values and captures into the session (max 8); optionally export it as deskctl-checkpoint/1.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 32,
+        "pattern": "^[a-z0-9._-]{1,32}$",
+        "description": "Checkpoint name (lowercase letters, digits, dot, underscore, dash)"
+      },
+      "targets": {
+        "type": "array",
+        "maxItems": 16,
+        "description": "Windows to snapshot (hwnd, a match spec, or a bound session target with the same name)",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "hwnd": {
+              "type": "integer"
+            },
+            "match": {
+              "type": "object",
+              "description": "Window match spec: process_name / class_name / title_contains"
+            }
+          },
+          "required": [
+            "name"
+          ]
+        }
+      },
+      "values": {
+        "type": "array",
+        "maxItems": 32,
+        "description": "Key values sampled through UIA locators",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "locator": {
+              "type": "object"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "value",
+                "checked",
+                "exists"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "locator"
+          ]
+        }
+      },
+      "capture_ids": {
+        "type": "array",
+        "maxItems": 16,
+        "items": {
+          "type": "string"
+        }
+      },
+      "path": {
+        "type": "string",
+        "description": "Optional deskctl-checkpoint/1 export path (allowed image roots policy)"
+      }
+    },
+    "required": [
+      "name"
+    ],
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "desktop_checkpoint_save",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false
+  }
+}

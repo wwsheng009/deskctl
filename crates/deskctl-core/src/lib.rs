@@ -3,6 +3,7 @@
 pub mod apps;
 pub mod audit;
 pub mod capture_policy;
+pub mod checkpoint;
 pub mod config;
 pub mod doctor;
 pub mod docx;

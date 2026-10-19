@@ -128,6 +128,12 @@ pub struct RunRequest<'a> {
     pub allow_external_commit: bool,
     pub allow_resume_after_unknown: bool,
     pub no_fragile: bool,
+    /// D4：运行前保存、收尾校验的检查点名。
+    pub checkpoint: Option<String>,
+    /// D4：失败时执行的补偿脚本文件。
+    pub compensation: Option<&'a Path>,
+    /// D4：补偿脚本是否真实执行（默认只生成 dry-run 计划）。
+    pub apply_compensation: bool,
 }
 
 pub async fn run(conn: &Conn, request: RunRequest<'_>) -> Result<(Value, i32), String> {
@@ -142,6 +148,9 @@ pub async fn run(conn: &Conn, request: RunRequest<'_>) -> Result<(Value, i32), S
         allow_external_commit,
         allow_resume_after_unknown,
         no_fragile,
+        checkpoint,
+        compensation,
+        apply_compensation,
     } = request;
     let document = read_document(file)?;
     let mut params_object = serde_json::Map::new();
@@ -169,6 +178,18 @@ pub async fn run(conn: &Conn, request: RunRequest<'_>) -> Result<(Value, i32), S
     }
     if let Some(risk_max) = risk_max {
         args["risk_max"] = json!(risk_max);
+    }
+    if let Some(checkpoint) = checkpoint {
+        args["checkpoint"] = json!(checkpoint);
+    }
+    if let Some(compensation) = compensation {
+        // 传给守护进程绝对路径，避免两边工作目录不一致。
+        let absolute = std::fs::canonicalize(compensation)
+            .map_err(|error| format!("resolve {}: {error}", compensation.display()))?;
+        args["compensation"] = json!({
+            "path": absolute.display().to_string(),
+            "apply": apply_compensation
+        });
     }
     let result = conn.call("desktop_script_run", args).await?;
     let code = exit_code_for(&result);

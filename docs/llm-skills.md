@@ -283,6 +283,9 @@ desktop_targets_list
   -> `deskctl script validate --file plan.dscript.json`（本地，不触达 daemon）
   -> `deskctl script run --file plan.dscript.json --dry-run`（预检 + 判定，不执行）
   -> `deskctl script run --file plan.dscript.json --session <id>`
+  -> 运行前留证据：追加 `--checkpoint before`（report.checkpoint 含运行前后差异）
+  -> 需要失败回滚：追加 `--compensation undo.dscript.json`（默认只产出 dry-run 计划，
+     `--apply-compensation` 才真实执行；补偿失败即停止，不做二级补偿）
 ```
 
 ### 5.1 老式界面巡检配方（SAP / ERP / 终端监控页）
@@ -323,6 +326,22 @@ desktop_targets_list
 
 PowerShell 传参建议：`@{...} | ConvertTo-Json -Depth 10 -Compress | deskctl call <sess> <tool> --stdin`
 （`--stdin` 可避免手工拼接 JSON 时的反斜杠转义错误）。
+
+### 5.3 检查点与补偿（D4）
+
+| 需求 | 用法 |
+|---|---|
+| 记住当前界面状态 | `desktop_checkpoint_save {name:"before"}`（可选 `targets`/`values`/`captures`/`path` 导出；同名覆盖，单会话最多 8 个） |
+| 事后比对是否有变 | `desktop_checkpoint_verify {name:"before"}` → 读 `matched` 与 `diffs[]`（`value`/`checked`/`exists`/`rect` 四类；窗口消失 `rect` 带 `missing:true`） |
+| 只关心关键值 | `desktop_checkpoint_verify {name:"before", values_only:true}`（跳过矩形比较） |
+| 跨进程复核 | save 时给 `path` 导出 `deskctl-checkpoint/1`，verify 时用 `path`（或内联文档）读回 |
+| 运行脚本留前后证据 | `deskctl script run ... --checkpoint before`（report.checkpoint 含收尾校验结果） |
+| 失败自动回滚 | `deskctl script run ... --compensation undo.dscript.json`；先看 dry-run 计划，确认后加 `--apply-compensation` |
+
+补偿脚本自身约定：`purpose:"compensation"` 且未显式给 `dry_run` 时默认 dry-run；补偿运行固定
+`risk_max:"bounded_write"`+`on_error:"stop"`，其步骤审计 `request_id=<compensation_run_id>:<step>`，
+可用 `history --run <run_id>` 复盘。`diffs` 报告的是"检查点与当前状态的差异"，
+不要在没有 dry-run 计划的情况下直接真实补偿。
 
 ## 6. 多会话规则
 

@@ -138,6 +138,8 @@ pub struct Session {
     last_used: Mutex<Instant>,
     pressed: Mutex<PressedState>,
     recorder: Mutex<Option<RecorderState>>,
+    /// D4 检查点（名字 → `deskctl-checkpoint/1` 文档，上限 8）。
+    checkpoints: Mutex<HashMap<String, serde_json::Value>>,
     active_run: Mutex<Option<String>>,
     last_run_outcome: Mutex<Option<String>>,
     closed: AtomicBool,
@@ -164,6 +166,7 @@ impl Session {
             last_used: Mutex::new(Instant::now()),
             pressed: Mutex::new(PressedState::default()),
             recorder: Mutex::new(None),
+            checkpoints: Mutex::new(HashMap::new()),
             active_run: Mutex::new(None),
             last_run_outcome: Mutex::new(None),
             closed: AtomicBool::new(false),
@@ -320,6 +323,7 @@ impl Session {
             "pressed_buttons": pressed_buttons,
             "pressed_keys": pressed_keys,
             "recorder_active": recorder_active,
+            "checkpoints": self.checkpoints_count(),
             "active_run": active_run,
             "last_used_ms_ago": self.last_used().elapsed().as_millis() as u64
         })
@@ -547,6 +551,56 @@ impl Session {
             .lock()
             .ok()
             .and_then(|value| value.clone())
+    }
+
+    /// 保存（或覆盖）一个会话内检查点；新增且超过上限时拒绝（design §2）。
+    pub fn store_checkpoint(&self, name: &str, document: Value) -> Result<(), ToolError> {
+        let mut checkpoints = self
+            .checkpoints
+            .lock()
+            .map_err(|_| internal("checkpoint store poisoned"))?;
+        if !checkpoints.contains_key(name)
+            && checkpoints.len() >= crate::checkpoint::MAX_CHECKPOINTS
+        {
+            return Err(ToolError::new(
+                ErrorCode::ResourceBusy,
+                format!(
+                    "session checkpoint limit reached ({}); overwrite an existing checkpoint or close the session",
+                    crate::checkpoint::MAX_CHECKPOINTS
+                ),
+            )
+            .retryable(false));
+        }
+        checkpoints.insert(name.to_string(), document);
+        Ok(())
+    }
+
+    /// 读取会话内检查点；未定义时返回 `invalid_params`。
+    pub fn checkpoint(&self, name: &str) -> Result<Value, ToolError> {
+        if self.is_closed() {
+            return Err(ToolError::new(
+                ErrorCode::ServerRestarted,
+                "session is closed",
+            ));
+        }
+        self.checkpoints
+            .lock()
+            .map_err(|_| internal("checkpoint store poisoned"))?
+            .get(name)
+            .cloned()
+            .ok_or_else(|| {
+                ToolError::new(
+                    ErrorCode::InvalidParams,
+                    format!("checkpoint '{name}' is not defined in this session; save it first"),
+                )
+            })
+    }
+
+    pub fn checkpoints_count(&self) -> usize {
+        self.checkpoints
+            .lock()
+            .map(|value| value.len())
+            .unwrap_or(0)
     }
 }
 

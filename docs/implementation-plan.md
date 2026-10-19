@@ -640,3 +640,10 @@ scripts/package-models.ps1
   与 `launch_ref` 受限重启；审计 `run_id` 与 `history --run`；CLI `record start|stop --out`、
   `script validate|run`；工具数 36 → 40（见 [design/record-replay.md](design/record-replay.md)、
   [implementation-status.md](implementation-status.md)）。
+- D4 检查点与补偿已实施（2026-10-19）：`desktop_checkpoint_save/verify`（会话内 8 个上限、
+   同名覆盖、四类差异 `value`/`checked`/`exists`/`rect`、导出 `deskctl-checkpoint/1` 并复用
+   允许根策略）、`desktop_script_run` 的 `checkpoint`（运行前保存 + 收尾校验进 report）与
+   `compensation`（默认 dry-run 计划、`apply` 才执行、固定 `bounded_write` + `on_error=stop`）、
+   脚本 `purpose=compensation` 默认 dry-run；CLI `script run --checkpoint/--compensation/
+   --apply-compensation`；工具数 40 → 42（见 [design/checkpoint-transaction.md](design/checkpoint-transaction.md)、
+   [implementation-status.md](implementation-status.md)）。

@@ -86,9 +86,17 @@ CLI/MCP ──► deskctl history      （P0：直读 audit JSONL，过滤/聚�
 | D4 检查点（P2） | checkpoint 保存/差异 + 补偿建议（dry-run 优先） | AC-TXN-001..003；工具数 40 → 42 |
 | I1 输入增强（独立） | `desktop_mouse` 新 action（move_relative/down/up）+ 拟人参数；`desktop_input` 新 mode（key/key_down/key_up）+ 键码三写法（name/vk/scan） | AC-MOUSE-012..014、AC-INPUT-009..012；工具数保持 36 |
 
-每个里程碑沿用现有工程门禁：`cargo fmt --check`、`clippy -D warnings`、`cargo test --workspace`（当前基线 109 passed）、契约重导出、真机冒烟、文档更新。
+每个里程碑沿用现有工程门禁：`cargo fmt --check`、`clippy -D warnings`、`cargo test --workspace`（当前基线 141 passed）、契约重导出、真机冒烟、文档更新。
 D1（审计与历史）已于 2026-10-19 实施并通过验证（AC-AUD-001..008，证据见 [../implementation-status.md](../implementation-status.md)）。
 D2（Agent 身份）已于 2026-10-19 实施并通过验证（AC-AGT-001..004，证据见 [../implementation-status.md](../implementation-status.md)）。
+D3（录制与回放）已于 2026-10-19 实施并通过验证（AC-RPL-001..009/013/014，证据见
+[../implementation-status.md](../implementation-status.md)；L2/L3 引擎未启用；真机 SAP ST06 回归见
+[../test-plan.md](../test-plan.md) §8）。
+D4（检查点与补偿）已于 2026-10-19 实施并通过验证（AC-TXN-001..003，证据见
+[../implementation-status.md](../implementation-status.md)；真机 GUI 差异样本见
+[../test-plan.md](../test-plan.md) §8 E2E-013）。
+I1（输入模拟增强）已于 2026-10-19 实施（AC-MOUSE-012..014、AC-INPUT-009..012；工具数保持 36 的口径
+随后续里程碑变化，见 [../implementation-status.md](../implementation-status.md)）。
 
 ## 5. 新增验收编号（草案，评审后登记）
 

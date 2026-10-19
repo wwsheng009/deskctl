@@ -88,17 +88,10 @@ impl Config {
         if std::env::var_os("DESKCTL_ALLOW_ANY_INPUT").is_some() {
             return true;
         }
-        let absolute = if path.is_absolute() {
-            path.to_path_buf()
-        } else {
-            std::env::current_dir()
-                .unwrap_or_else(|_| PathBuf::from("."))
-                .join(path)
-        };
-        let path = absolute.canonicalize().unwrap_or(absolute);
+        let path = comparable_path(path);
         self.allowed_image_roots()
             .into_iter()
-            .any(|root| path.starts_with(root.canonicalize().unwrap_or(root)))
+            .any(|root| path.starts_with(comparable_path(&root)))
     }
 
     /// 返回允许读取的图像根目录（doctor 输出与 policy_denied 提示共用）。
@@ -117,6 +110,30 @@ impl Config {
         }
         roots
     }
+}
+
+/// 归一化到可比较形态：缺失路径回退为绝对路径；Windows 下 `canonicalize`
+/// 会带 `\\?\` verbatim 前缀，而回退路径没有，两侧直接比较会误判越界。
+fn comparable_path(path: &Path) -> PathBuf {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(path)
+    };
+    strip_verbatim(absolute.canonicalize().unwrap_or(absolute))
+}
+
+fn strip_verbatim(path: PathBuf) -> PathBuf {
+    let text = path.to_string_lossy().to_string();
+    if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{rest}"));
+    }
+    if let Some(rest) = text.strip_prefix(r"\\?\") {
+        return PathBuf::from(rest);
+    }
+    path
 }
 
 fn env_usize(name: &str, default: usize) -> usize {
@@ -234,4 +251,40 @@ pub fn onnx_runtime_path() -> Option<PathBuf> {
         .chain(models_dir())
         .map(|dir| dir.join(name))
         .find(|path| path.is_file())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 回归：允许根内**尚不存在**的文件必须放行（Windows `canonicalize` 对
+    /// 缺失路径回退为不带 `\\?\` 前缀的绝对路径，两侧不统一会误判越界）。
+    #[test]
+    fn non_existent_path_inside_allowed_root_is_allowed() {
+        if std::env::var_os("DESKCTL_ALLOW_ANY_INPUT").is_some()
+            || std::env::var_os("DESKCTL_ALLOWED_INPUT_ROOT").is_some()
+        {
+            return; // 策略被环境短路，断言无意义。
+        }
+        let config = Config::default();
+        let probe = std::env::temp_dir().join("deskctl-config-policy-probe.json");
+        assert!(config.is_allowed_image_path(&probe), "{}", probe.display());
+    }
+
+    #[test]
+    fn path_outside_roots_is_denied() {
+        if std::env::var_os("DESKCTL_ALLOW_ANY_INPUT").is_some() {
+            return; // 允许任意输入时该策略短路，测试无意义。
+        }
+        let config = Config::default();
+        let outside = PathBuf::from("C:/Windows/System32/deskctl-policy-probe.json");
+        let rooted_outside = config
+            .allowed_image_roots()
+            .iter()
+            .any(|root| comparable_path(&outside).starts_with(comparable_path(root)));
+        if rooted_outside {
+            return; // 极端环境下（cwd 恰为 C:\Windows\System32）跳过。
+        }
+        assert!(!config.is_allowed_image_path(&outside));
+    }
 }

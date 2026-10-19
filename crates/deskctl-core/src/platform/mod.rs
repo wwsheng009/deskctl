@@ -19,7 +19,7 @@ mod imp {
         mouse_scroll, parse_key_spec, send_key, type_text, virtual_desktop_bounds, KeySpec,
     };
     pub use super::windows::uia::{
-        observe_window, perform_action, ActionOptions, UiNode, UiaAction,
+        observe_window, perform_action, read_node_value, ActionOptions, UiNode, UiaAction,
     };
     pub use super::windows::window::{
         activate_window, activate_window_report, active_input_window, find_window_by_title,
@@ -221,6 +221,9 @@ mod imp {
         pub require_foreground: bool,
     }
     pub fn observe_window(_hwnd: i64, _limit: usize) -> Result<Vec<UiNode>, ToolError> {
+        Err(unsupported())
+    }
+    pub fn read_node_value(_hwnd: i64, _opaque_id: &str) -> Result<Option<String>, ToolError> {
         Err(unsupported())
     }
     pub fn perform_action(

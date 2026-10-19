@@ -2,7 +2,7 @@
 
 Deskctl is a standalone Windows desktop-control service for LLMs and agents.
 It ships as one `deskctl.exe` and exposes a stateless CLI, a local named-pipe
-daemon, multi-session JSON-RPC, MCP stdio, and 28 `desktop_*` tools. It contains
+daemon, multi-session JSON-RPC, MCP stdio, and 42 `desktop_*` tools. It contains
 no Tauri UI, LLM SDK, workflow engine, or approval flow.
 
 > Implementation status: Windows first-release scope implemented. See
@@ -110,9 +110,9 @@ session and invalidates all tokens.
 | Profile | Tools | Purpose |
 |---|---:|---|
 | `minimal` | 6 | Screenshot, window list/activate/capture, mouse, input |
-| `standard` | 26 | Default core tools |
-| `full` | 28 | Adds `desktop_vision` and `desktop_agent_step` |
-| `readonly` | 9 | Capture/read/perceive/find/verify only |
+| `standard` | 40 | Default core tools |
+| `full` | 42 | Adds `desktop_vision` and `desktop_agent_step` |
+| `readonly` | 25 | Capture/read/perceive/find/verify only |
 
 Use `--profile full`. `desktop_vision` requires a separately configured external
 provider; `desktop_agent_step` requires the optional enhanced-decision provider.
@@ -120,7 +120,7 @@ Both return `model_unavailable` when the provider is absent.
 
 ## Contracts and skills
 
-- `contracts/tools/` contains all 28 tool contracts in full profile.
+- `contracts/tools/` contains all 42 tool contracts in full profile.
 - Regenerate with `deskctl --profile full schema --out contracts/tools`.
 - `skills/desktop-basic`, `desktop-window`, `desktop-text`,
   `desktop-semantic`, and `desktop-recovery` contain manifests and `SKILL.md`.

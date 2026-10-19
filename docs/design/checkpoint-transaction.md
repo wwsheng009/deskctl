@@ -2,7 +2,10 @@
 
 - 文档版本：0.1
 - 日期：2026-10-19
-- 状态：Draft（待评审）
+- 状态：已实施（D4，2026-10-19；实现见 `crates/deskctl-core/src/checkpoint.rs`、`script.rs`、
+  `crates/deskctl-cli/src/script_cmd.rs`；验证见 [../implementation-status.md](../implementation-status.md)
+  §1/§2 与 `crates/deskctl-cli/tests/checkpoint_contract.rs`；真机 GUI 差异样本见
+  [../test-plan.md](../test-plan.md) §8 E2E-013）
 - 关联：[README.md](README.md)、[data-formats.md](data-formats.md)、[record-replay.md](record-replay.md)
 
 ## 1. 定位：为什么不做真事务
