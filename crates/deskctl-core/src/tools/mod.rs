@@ -288,7 +288,39 @@ fn window_screenshot(
             "window_screenshot requires hwnd or title",
         ));
     };
-    let capture = platform::capture_window(hwnd)?;
+    let mut capture = platform::capture_window(hwnd)?;
+    let cropped = if let Some(region) = optional_region(args) {
+        if region.width == 0 || region.height == 0 {
+            return Err(invalid("region width and height must be positive"));
+        }
+        let image_width = i64::from(capture.image.width());
+        let image_height = i64::from(capture.image.height());
+        if region.x < 0
+            || region.y < 0
+            || i64::from(region.x) + i64::from(region.width) > image_width
+            || i64::from(region.y) + i64::from(region.height) > image_height
+        {
+            return Err(invalid(format!(
+                "region is outside the captured window ({}x{})",
+                image_width, image_height
+            )));
+        }
+        capture.image = image::imageops::crop_imm(
+            &capture.image,
+            region.x as u32,
+            region.y as u32,
+            region.width,
+            region.height,
+        )
+        .to_image();
+        capture.screen_rect.x += region.x;
+        capture.screen_rect.y += region.y;
+        capture.screen_rect.width = region.width;
+        capture.screen_rect.height = region.height;
+        true
+    } else {
+        false
+    };
     let policy = crate::capture_policy::CapturePolicy::from_args(args, &engine.config().capture)?;
     let encoded = platform::save_capture_with_format(
         &capture.image,
@@ -314,6 +346,7 @@ fn window_screenshot(
         "bytes": encoded.bytes,
         "resized": encoded.resized,
         "quality": encoded.quality,
+        "cropped": cropped,
         "screen_region": capture.screen_rect
     })))
 }
@@ -1684,8 +1717,23 @@ fn load_tool_image(
 }
 
 fn perceive(engine: &Engine, session: &Session, args: &Value) -> Result<ToolExecution, ToolError> {
+    let text_only = args
+        .get("text_only")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let (path, capture_id, screen_rect, image) = load_tool_image(engine, session, args)?;
-    let mut elements = engine.vision().perceive(&image, screen_rect)?;
+    let started = Instant::now();
+    let mut elements = if text_only {
+        engine.vision().perceive_text(&image, screen_rect)?
+    } else {
+        engine.vision().perceive(&image, screen_rect)?
+    };
+    let elapsed_ms = started.elapsed().as_millis() as u64;
+    let text_count = elements
+        .iter()
+        .filter(|element| element.kind == "text" && !element.text.is_empty())
+        .count();
+    let raw_text = read_order_text(&elements);
     elements.sort_by(|left, right| {
         left.rect
             .y
@@ -1736,8 +1784,25 @@ fn perceive(engine: &Engine, session: &Session, args: &Value) -> Result<ToolExec
         "capture_id": capture_id,
         "image_path": path.display().to_string(),
         "elements": public,
+        "text_only": text_only,
+        "text_count": text_count,
+        "raw_text": crate::untrusted::wrap(&raw_text),
+        "elapsed_ms": elapsed_ms,
+        "image_width": image.width(),
+        "image_height": image.height(),
         "count": public.len()
     })))
+}
+
+/// Join OCR text in the already sorted reading order (top-to-bottom,
+/// left-to-right) and omit icon elements.
+fn read_order_text(elements: &[crate::vision::VisionElement]) -> String {
+    elements
+        .iter()
+        .filter(|element| element.kind == "text" && !element.text.is_empty())
+        .map(|element| element.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// 把图像上的 OCR 文本按"标签 → 数值"配对（同行右侧优先，其次正下方），
@@ -3049,6 +3114,49 @@ mod tests {
         // 超上限必须拒绝并附范围（validation message 含上限值）。
         let error = parse_delay_ms(Some(&json!([1, 20_000]))).unwrap_err();
         assert!(error.message.contains("10000"), "{}", error.message);
+    }
+
+    #[test]
+    fn read_order_text_skips_icons_and_joins_text() {
+        let elements = vec![
+            crate::vision::VisionElement {
+                kind: "text".to_string(),
+                text: "第一行".to_string(),
+                rect: ScreenRect {
+                    x: 0,
+                    y: 0,
+                    width: 10,
+                    height: 10,
+                },
+                confidence: 0.9,
+                screen_center: None,
+            },
+            crate::vision::VisionElement {
+                kind: "icon".to_string(),
+                text: String::new(),
+                rect: ScreenRect {
+                    x: 20,
+                    y: 0,
+                    width: 10,
+                    height: 10,
+                },
+                confidence: 0.8,
+                screen_center: None,
+            },
+            crate::vision::VisionElement {
+                kind: "text".to_string(),
+                text: "第二行".to_string(),
+                rect: ScreenRect {
+                    x: 0,
+                    y: 20,
+                    width: 10,
+                    height: 10,
+                },
+                confidence: 0.9,
+                screen_center: None,
+            },
+        ];
+        assert_eq!(read_order_text(&elements), "第一行\n第二行");
     }
 
     #[test]

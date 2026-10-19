@@ -156,6 +156,7 @@ pub fn input_schema(name: ToolName) -> Value {
                 "hwnd": { "type": "integer" },
                 "title": { "type": "string" },
                 "path": { "type": "string" },
+                "region": rect(),
                 "format": { "type": "string", "enum": ["png","jpeg","webp"] },
                 "quality": { "type": "integer", "minimum": 1, "maximum": 100 },
                 "max_width": { "type": "integer", "minimum": 1, "maximum": 16384 },
@@ -192,8 +193,9 @@ pub fn input_schema(name: ToolName) -> Value {
         ),
         ToolName::Perceive => object(
             json!({
-                "image_path": { "type": "string", "description": "Path inside an allowed image root" },
-                "capture_id": { "type": "string", "description": "Session capture (screenshot/crop) to read; bypasses the image-root policy" }
+                "image_path": { "type": "string", "description": "Image file inside an allowed image root (OCR/vision input)" },
+                "capture_id": { "type": "string", "description": "Session capture (screenshot/crop) to read; bypasses the image-root policy" },
+                "text_only": { "type": "boolean", "default": false, "description": "Run OCR only and skip YOLO icon detection" }
             }),
             &[],
         ),

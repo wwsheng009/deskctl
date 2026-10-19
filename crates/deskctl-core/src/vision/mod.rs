@@ -43,25 +43,74 @@ impl VisionEngine {
             )
             .retryable(false));
         }
+        let mut elements = Vec::new();
+        if self.models.ocr_available() {
+            elements.extend(self.ocr_elements(image, screen_rect)?);
+        }
+        if self.yolo.available() {
+            let origin = screen_rect.unwrap_or(ScreenRect {
+                x: 0,
+                y: 0,
+                width: image.width(),
+                height: image.height(),
+            });
+            let icons = self.yolo.detect(image)?;
+            elements.extend(icons.into_iter().map(|icon| VisionElement {
+                kind: "icon".to_string(),
+                text: String::new(),
+                rect: icon.rect,
+                confidence: icon.confidence,
+                screen_center: Some((
+                    origin.x + icon.rect.x + icon.rect.width as i32 / 2,
+                    origin.y + icon.rect.y + icon.rect.height as i32 / 2,
+                )),
+            }));
+        }
+        Ok(Self::finish(elements))
+    }
+
+    /// OCR-only path used by `desktop_perceive text_only=true`.
+    pub fn perceive_text(
+        &self,
+        image: &image::RgbaImage,
+        screen_rect: Option<ScreenRect>,
+    ) -> Result<Vec<VisionElement>, ToolError> {
+        if !self.models.ocr_available() {
+            return Err(ToolError::new(
+                ErrorCode::ModelUnavailable,
+                format!(
+                    "OCR models are missing from {}; run scripts/fetch-models.ps1",
+                    self.models.dir().display()
+                ),
+            )
+            .retryable(false));
+        }
+        Ok(Self::finish(self.ocr_elements(image, screen_rect)?))
+    }
+
+    fn ocr_elements(
+        &self,
+        image: &image::RgbaImage,
+        screen_rect: Option<ScreenRect>,
+    ) -> Result<Vec<VisionElement>, ToolError> {
         let origin = screen_rect.unwrap_or(ScreenRect {
             x: 0,
             y: 0,
             width: image.width(),
             height: image.height(),
         });
-        let mut elements = Vec::new();
-        if self.models.ocr_available() {
-            let rgb = image::DynamicImage::ImageRgba8(image.clone()).to_rgb8();
-            let blocks =
-                paddle_ocr::PaddleOcr::with_engine(|engine| engine.ocr_with_boxes_image(&rgb))
-                    .map_err(|error| {
-                        ToolError::new(
-                            ErrorCode::ModelUnavailable,
-                            format!("PaddleOCR failed: {error}"),
-                        )
-                        .retryable(false)
-                    })?;
-            elements.extend(blocks.into_iter().map(|block| VisionElement {
+        let rgb = image::DynamicImage::ImageRgba8(image.clone()).to_rgb8();
+        let blocks = paddle_ocr::PaddleOcr::with_engine(|engine| engine.ocr_with_boxes_image(&rgb))
+            .map_err(|error| {
+                ToolError::new(
+                    ErrorCode::ModelUnavailable,
+                    format!("PaddleOCR failed: {error}"),
+                )
+                .retryable(false)
+            })?;
+        Ok(blocks
+            .into_iter()
+            .map(|block| VisionElement {
                 kind: "text".to_string(),
                 text: block.text,
                 rect: ScreenRect {
@@ -75,21 +124,11 @@ impl VisionEngine {
                     origin.x + block.x + block.w / 2,
                     origin.y + block.y + block.h / 2,
                 )),
-            }));
-        }
-        if self.yolo.available() {
-            let icons = self.yolo.detect(image)?;
-            elements.extend(icons.into_iter().map(|icon| VisionElement {
-                kind: "icon".to_string(),
-                text: String::new(),
-                rect: icon.rect,
-                confidence: icon.confidence,
-                screen_center: Some((
-                    origin.x + icon.rect.x + icon.rect.width as i32 / 2,
-                    origin.y + icon.rect.y + icon.rect.height as i32 / 2,
-                )),
-            }));
-        }
+            })
+            .collect())
+    }
+
+    fn finish(mut elements: Vec<VisionElement>) -> Vec<VisionElement> {
         elements.sort_by(|left, right| {
             left.rect
                 .y
@@ -101,6 +140,6 @@ impl VisionEngine {
         elements.dedup_by(|left, right| {
             left.kind == right.kind && left.text == right.text && left.rect == right.rect
         });
-        Ok(elements)
+        elements
     }
 }

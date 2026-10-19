@@ -41,6 +41,12 @@ enum Commands {
         /// Attribution label for audit records (default `oneshot`).
         #[arg(long)]
         owner: Option<String>,
+        /// Write the JSON result to this UTF-8 file instead of stdout.
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// Emit compact JSON (default: pretty).
+        #[arg(long)]
+        compact: bool,
     },
     /// Start the local daemon.
     Serve {
@@ -65,8 +71,17 @@ enum Commands {
         token_file: Option<PathBuf>,
         #[arg(long)]
         session_token: Option<String>,
+        /// Read the session token from this UTF-8 file when --session-token is absent.
+        #[arg(long)]
+        session_token_file: Option<PathBuf>,
         #[arg(long)]
         request_id: Option<String>,
+        /// Write the JSON result to this UTF-8 file instead of stdout.
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// Emit compact JSON (default: pretty).
+        #[arg(long)]
+        compact: bool,
     },
     /// Manage daemon sessions.
     Session {
@@ -81,7 +96,14 @@ enum Commands {
         skill_root: Option<PathBuf>,
     },
     /// Show platform, model, token and socket diagnostics.
-    Doctor,
+    Doctor {
+        /// Write the JSON result to this UTF-8 file instead of stdout.
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// Emit compact JSON (default: pretty).
+        #[arg(long)]
+        compact: bool,
+    },
     /// Query the local audit history (reads JSONL files directly).
     History {
         #[arg(long)]
@@ -254,6 +276,9 @@ enum SessionCommands {
         socket: Option<String>,
         #[arg(long)]
         token_file: Option<PathBuf>,
+        /// Write the returned session token to this UTF-8 file.
+        #[arg(long)]
+        token_out: Option<PathBuf>,
     },
     List {
         /// Only show sessions with this exact owner label.
@@ -272,6 +297,8 @@ enum SessionCommands {
         token_file: Option<PathBuf>,
         #[arg(long)]
         session_token: Option<String>,
+        #[arg(long)]
+        session_token_file: Option<PathBuf>,
     },
     Close {
         id: String,
@@ -281,6 +308,8 @@ enum SessionCommands {
         token_file: Option<PathBuf>,
         #[arg(long)]
         session_token: Option<String>,
+        #[arg(long)]
+        session_token_file: Option<PathBuf>,
     },
 }
 
@@ -318,6 +347,8 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
             json,
             stdin,
             owner,
+            output,
+            compact,
         } => {
             let args = read_args(json, stdin)?;
             let owner = match owner {
@@ -347,17 +378,14 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
                             "risk": "read_only"
                         }
                     });
-                    output::print_json(&failure)?;
+                    output::print_json_with_options(&failure, compact, output.as_deref())?;
                     return Ok(2);
                 }
             };
             let engine = Engine::new(config_for(profile));
             let result = engine.execute_oneshot_as(tool, args, owner).await;
             engine.flush_audit();
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&result).map_err(|error| error.to_string())?
-            );
+            output::print_json_with_options(&result, compact, output.as_deref())?;
             Ok(if result.ok {
                 0
             } else {
@@ -389,11 +417,13 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
             socket,
             token_file,
             session_token,
+            session_token_file,
             request_id,
+            output,
+            compact,
         } => {
             let args = read_args(json, stdin)?;
-            let session_token =
-                session_token.or_else(|| std::env::var("DESKCTL_SESSION_TOKEN").ok());
+            let session_token = resolve_session_token(session_token, session_token_file)?;
             let result = client::request(
                 &socket.unwrap_or_else(config::default_socket_name),
                 &token_file.unwrap_or_else(config::token_path),
@@ -407,19 +437,17 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
                 }),
             )
             .await?;
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&result).map_err(|error| error.to_string())?
-            );
+            output::print_json_with_options(&result, compact, output.as_deref())?;
             Ok(exit_code_for(&result))
         }
         Commands::Session { command } => {
-            let (method, params, socket, token_file) = match command {
+            let (method, params, socket, token_file, token_out) = match command {
                 SessionCommands::Create {
                     profile,
                     owner,
                     socket,
                     token_file,
+                    token_out,
                 } => {
                     let owner = match owner {
                         Some(raw) => Some(
@@ -436,6 +464,7 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
                         }),
                         socket.unwrap_or_else(config::default_socket_name),
                         token_file.unwrap_or_else(config::token_path),
+                        token_out,
                     )
                 }
                 SessionCommands::List {
@@ -447,37 +476,51 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
                     serde_json::json!({ "owner": owner }),
                     socket.unwrap_or_else(config::default_socket_name),
                     token_file.unwrap_or_else(config::token_path),
+                    None,
                 ),
                 SessionCommands::Inspect {
                     id,
                     socket,
                     token_file,
                     session_token,
+                    session_token_file,
                 } => (
                     "session/inspect",
                     serde_json::json!({
                         "session_id": id,
-                        "session_token": session_token.or_else(|| std::env::var("DESKCTL_SESSION_TOKEN").ok())
+                        "session_token": resolve_session_token(session_token, session_token_file)?
                     }),
                     socket.unwrap_or_else(config::default_socket_name),
                     token_file.unwrap_or_else(config::token_path),
+                    None,
                 ),
                 SessionCommands::Close {
                     id,
                     socket,
                     token_file,
                     session_token,
+                    session_token_file,
                 } => (
                     "session/close",
                     serde_json::json!({
                         "session_id": id,
-                        "session_token": session_token.or_else(|| std::env::var("DESKCTL_SESSION_TOKEN").ok())
+                        "session_token": resolve_session_token(session_token, session_token_file)?
                     }),
                     socket.unwrap_or_else(config::default_socket_name),
                     token_file.unwrap_or_else(config::token_path),
+                    None,
                 ),
             };
             let result = client::request(&socket, &token_file, method, params).await?;
+            if let Some(path) = token_out {
+                let token = result
+                    .get("session_token")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| {
+                        "session/create response did not include session_token".to_string()
+                    })?;
+                write_session_token(&path, token)?;
+            }
             println!(
                 "{}",
                 serde_json::to_string_pretty(&result).map_err(|error| error.to_string())?
@@ -514,12 +557,9 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
                 },
             )
         }
-        Commands::Doctor => {
+        Commands::Doctor { output, compact } => {
             let report = deskctl_core::doctor::report();
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&report).map_err(|error| error.to_string())?
-            );
+            output::print_json_with_options(&report, compact, output.as_deref())?;
             Ok(if report.get("ok").and_then(Value::as_bool) == Some(true) {
                 0
             } else {
@@ -725,6 +765,43 @@ fn config_for(profile: ToolProfile) -> Config {
         profile,
         ..Config::default()
     }
+}
+
+fn resolve_session_token(
+    explicit: Option<String>,
+    file: Option<PathBuf>,
+) -> Result<Option<String>, String> {
+    if let Some(token) = explicit {
+        let token = token.trim().to_string();
+        if token.is_empty() {
+            return Err("session token is empty".to_string());
+        }
+        return Ok(Some(token));
+    }
+    if let Some(path) = file {
+        let token = std::fs::read_to_string(&path)
+            .map_err(|error| format!("read session token '{}': {error}", path.display()))?;
+        let token = token.trim().to_string();
+        if token.is_empty() {
+            return Err(format!("session token file '{}' is empty", path.display()));
+        }
+        return Ok(Some(token));
+    }
+    Ok(std::env::var("DESKCTL_SESSION_TOKEN")
+        .ok()
+        .filter(|value| !value.trim().is_empty()))
+}
+
+fn write_session_token(path: &std::path::Path, token: &str) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent).map_err(|error| {
+                format!("create token directory '{}': {error}", parent.display())
+            })?;
+        }
+    }
+    std::fs::write(path, format!("{}\n", token.trim()))
+        .map_err(|error| format!("write session token '{}': {error}", path.display()))
 }
 
 /// Install the tracing subscriber (`DESKCTL_LOG`, default `info`, stderr).

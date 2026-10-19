@@ -201,6 +201,58 @@ fn owner_flag_round_trips_and_validates() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+/// Session tokens can be persisted with `--token-out` and consumed by
+/// `call --session-token-file`, avoiding token values in shell history.
+#[test]
+fn session_token_file_round_trips_and_calls_tool() {
+    let root = temp_dir("token-file");
+    let (mut daemon, common) = start_daemon(&root, "token", &[]);
+    let envs: &[(&str, &str)] = &[];
+    let token_path = root.join("session.token");
+    let token_path = token_path.to_str().expect("utf-8 token path");
+
+    let created = deskctl_with_socket(
+        &["session", "create", "--token-out", token_path],
+        &common,
+        envs,
+    );
+    assert!(
+        created.status.success(),
+        "create: {}",
+        stderr_text(&created)
+    );
+    let info = stdout_json(&created);
+    let session_id = info["session_id"].as_str().expect("session_id");
+    let token = info["session_token"].as_str().expect("session_token");
+    let file_token = std::fs::read_to_string(token_path)
+        .expect("read token file")
+        .trim()
+        .to_string();
+    assert_eq!(file_token, token);
+
+    let called = deskctl_with_socket(
+        &[
+            "call",
+            session_id,
+            "desktop_screen_size",
+            "--session-token-file",
+            token_path,
+        ],
+        &common,
+        envs,
+    );
+    assert!(
+        called.status.success(),
+        "call with token file: {}",
+        stderr_text(&called)
+    );
+    let result = stdout_json(&called);
+    assert_eq!(result["ok"], true);
+
+    stop_daemon(&mut daemon, &common, envs);
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// AC-AGT-004: the per-owner session cap only bites the owner that reaches it.
 #[test]
 fn owner_session_limit_is_per_owner() {

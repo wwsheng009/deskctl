@@ -31,6 +31,38 @@ fn doctor_returns_structured_json() {
 }
 
 #[test]
+fn doctor_writes_compact_utf8_output_file() {
+    let path = std::env::temp_dir().join(format!(
+        "deskctl-doctor-output-{}-{}.json",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let output = Command::new(env!("CARGO_BIN_EXE_deskctl"))
+        .args([
+            "doctor",
+            "--compact",
+            "--output",
+            path.to_str().expect("utf-8 path"),
+        ])
+        .output()
+        .expect("run deskctl doctor --output");
+    let bytes = std::fs::read(&path).expect("read doctor output file");
+    let text = String::from_utf8(bytes).expect("doctor output must be utf-8");
+    assert_eq!(text.lines().count(), 1, "compact output must be one line");
+    let report: serde_json::Value = serde_json::from_str(text.trim()).expect("doctor output JSON");
+    assert!(report["platform"].is_object());
+    let _ = std::fs::remove_file(path);
+    assert!(
+        matches!(output.status.code(), Some(0) | Some(6)),
+        "doctor exit status: {:?}",
+        output.status
+    );
+}
+
+#[test]
 fn exported_contracts_cover_full_profile() {
     let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let directory = root.join("contracts/tools");

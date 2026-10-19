@@ -2,6 +2,7 @@ use deskctl_protocol::{ErrorCode, ToolError};
 use serde_json::{json, Value};
 use windows::core::PWSTR;
 use windows::Win32::Foundation::{BOOL, HWND, LPARAM, POINT, RECT};
+use windows::Win32::Graphics::Gdi::ClientToScreen;
 use windows::Win32::System::Threading::{
     AttachThreadInput, GetCurrentThreadId, OpenProcess, QueryFullProcessImageNameW,
     PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
@@ -9,7 +10,7 @@ use windows::Win32::System::Threading::{
 use windows::Win32::UI::Input::KeyboardAndMouse::{keybd_event, KEYEVENTF_KEYUP};
 use windows::Win32::UI::Input::KeyboardAndMouse::{IsWindowEnabled, SetActiveWindow};
 use windows::Win32::UI::WindowsAndMessaging::{
-    BringWindowToTop, EnumWindows, GetAncestor, GetClassNameW, GetForegroundWindow,
+    BringWindowToTop, EnumWindows, GetAncestor, GetClassNameW, GetClientRect, GetForegroundWindow,
     GetLastActivePopup, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
     GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, SetForegroundWindow,
     SetWindowPos, ShowWindow, SwitchToThisWindow, WindowFromPoint, GA_ROOT, HWND_NOTOPMOST,
@@ -306,6 +307,26 @@ fn info_for(hwnd: HWND) -> Result<Value, ToolError> {
         GetWindowRect(hwnd, &mut rect)
             .map_err(|error| unavailable_with(hwnd, error.to_string()))?;
     }
+    let mut client = RECT::default();
+    let mut client_origin = POINT { x: 0, y: 0 };
+    let client_ok = unsafe { GetClientRect(hwnd, &mut client) }.is_ok();
+    if client_ok {
+        unsafe {
+            let _ = ClientToScreen(hwnd, &mut client_origin);
+        }
+    }
+    let client_rect = if client_ok {
+        json!({
+            "x": client_origin.x,
+            "y": client_origin.y,
+            "width": (client.right - client.left).max(0),
+            "height": (client.bottom - client.top).max(0),
+            "offset_x": client_origin.x - rect.left,
+            "offset_y": client_origin.y - rect.top
+        })
+    } else {
+        Value::Null
+    };
     let mut length = unsafe { GetWindowTextLengthW(hwnd) };
     if length < 0 {
         length = 0;
@@ -335,6 +356,7 @@ fn info_for(hwnd: HWND) -> Result<Value, ToolError> {
         "y": rect.top,
         "width": (rect.right - rect.left).max(0),
         "height": (rect.bottom - rect.top).max(0),
+        "client_rect": client_rect,
         "visible": unsafe { IsWindowVisible(hwnd).as_bool() },
         "minimized": unsafe { IsIconic(hwnd).as_bool() },
         "foreground": foreground

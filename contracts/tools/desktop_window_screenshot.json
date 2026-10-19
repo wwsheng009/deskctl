@@ -1,6 +1,6 @@
 {
   "name": "desktop_window_screenshot",
-  "description": "Capture one window and save it as PNG.",
+  "description": "Capture one window and save it as PNG. Optional region crops the captured image; x/y are relative to the capture. Use desktop_window_info client_rect for client-area screen coordinates.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -12,6 +12,32 @@
       },
       "path": {
         "type": "string"
+      },
+      "region": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "integer"
+          },
+          "y": {
+            "type": "integer"
+          },
+          "width": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "height": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "width",
+          "height"
+        ],
+        "additionalProperties": false
       },
       "format": {
         "type": "string",

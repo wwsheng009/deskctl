@@ -1,6 +1,6 @@
 {
   "name": "desktop_window_info",
-  "description": "Read detailed window bounds and process information.",
+  "description": "Read detailed window bounds, client_rect (client-area screen coordinates and offset from the window), and process information.",
   "inputSchema": {
     "type": "object",
     "properties": {

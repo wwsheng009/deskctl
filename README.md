@@ -72,10 +72,11 @@ unsupported, `7` policy/authentication denial.
 
 ```powershell
 deskctl serve
-deskctl session create
+deskctl session create --token-out .\session.token
 deskctl session list
-deskctl call <session_id> desktop_screenshot --json '{}'
-deskctl call <session_id> desktop_wait_for --request-id wait-1 --json '{"condition":"stable","timeout_ms":30000}'
+deskctl call <session_id> desktop_screenshot --session-token-file .\session.token --json '{}' --output shot.json
+deskctl call <session_id> desktop_wait_for --session-token-file .\session.token --request-id wait-1 --json '{"condition":"stable","timeout_ms":30000}'
+deskctl call <session_id> desktop_perceive --session-token-file .\session.token --json '{"image_path":"C:/temp/page.png","text_only":true}' --output ocr.json
 deskctl cancel wait-1
 deskctl session inspect <session_id>
 deskctl session close <session_id>
@@ -83,9 +84,19 @@ deskctl shutdown
 ```
 
 The daemon listens only on the local named pipe `\\.\pipe\deskctl` by default.
-Every request requires the access token from the token file. Session tokens are
-stored locally after `session create`; capture, target, and observation state
-never crosses sessions.
+Every request requires the access token from the token file. `session create
+--token-out <file>` writes the session token as UTF-8; `--session-token-file`
+reads it back, and `DESKCTL_SESSION_TOKEN` is the environment fallback. This
+keeps tokens out of shell history. Capture, target, and observation state never
+crosses sessions.
+
+`call`, `tool`, and `doctor` accept `--output <file>` to write UTF-8 JSON
+directly (avoiding Windows console code-page conversion) and `--compact` for
+single-line output. `desktop_perceive text_only=true` skips YOLO icon detection
+and returns `raw_text` in reading order, plus `text_count` and `elapsed_ms`.
+`desktop_window_info` now reports `client_rect` (client-area screen coordinates
+and offset from the window), and `desktop_window_screenshot` accepts a `region`
+crop relative to the captured image.
 
 ## MCP
 
