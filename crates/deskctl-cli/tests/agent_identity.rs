@@ -278,21 +278,18 @@ fn batch_runs_jsonl_requests_and_writes_results() {
     )
     .expect("write batch file");
     let output_dir = root.join("batch-out");
-    let batch = deskctl_with_socket(
-        &[
-            "batch",
-            "--file",
-            batch_file.to_str().expect("utf-8 batch path"),
-            "--session",
-            session_id,
-            "--session-token",
-            token,
-            "--output-dir",
-            output_dir.to_str().expect("utf-8 output dir"),
-        ],
-        &common,
-        envs,
-    );
+    let batch_args = vec![
+        "batch",
+        "--file",
+        batch_file.to_str().expect("utf-8 batch path"),
+        "--session",
+        session_id,
+        "--session-token",
+        token,
+        "--output-dir",
+        output_dir.to_str().expect("utf-8 output dir"),
+    ];
+    let batch = deskctl_with_socket(&batch_args, &common, envs);
     assert!(batch.status.success(), "batch: {}", stderr_text(&batch));
     let lines = stdout_json_lines(&batch);
     assert_eq!(lines.len(), 2);
@@ -306,6 +303,18 @@ fn batch_runs_jsonl_requests_and_writes_results() {
         serde_json::from_str(&std::fs::read_to_string(files[0].path()).expect("read batch result"))
             .expect("batch result json");
     assert_eq!(first["ok"], true);
+
+    let mut rerun_args = batch_args.clone();
+    rerun_args.push("--skip-existing");
+    let rerun = deskctl_with_socket(&rerun_args, &common, envs);
+    assert!(
+        rerun.status.success(),
+        "batch rerun: {}",
+        stderr_text(&rerun)
+    );
+    let rerun_lines = stdout_json_lines(&rerun);
+    assert_eq!(rerun_lines.len(), 2);
+    assert!(rerun_lines.iter().all(|line| line["skipped"] == true));
 
     stop_daemon(&mut daemon, &common, envs);
     let _ = std::fs::remove_dir_all(root);

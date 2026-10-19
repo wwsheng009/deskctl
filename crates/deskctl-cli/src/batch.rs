@@ -26,6 +26,7 @@ pub struct BatchOptions {
     pub output_dir: PathBuf,
     pub compact: bool,
     pub stop_on_error: bool,
+    pub skip_existing: bool,
 }
 
 /// Run a JSONL batch sequentially in one daemon session. Each result is written
@@ -69,6 +70,22 @@ pub async fn run(options: BatchOptions) -> Result<i32, String> {
         } else {
             arguments
         };
+        let path = output_path(&options.output_dir, total, &tool);
+        if options.skip_existing && path.is_file() {
+            let summary = json!({
+                "index": total,
+                "tool": tool,
+                "ok": true,
+                "skipped": true,
+                "output": path.display().to_string(),
+                "error": Value::Null
+            });
+            println!(
+                "{}",
+                serde_json::to_string(&summary).map_err(|error| error.to_string())?
+            );
+            continue;
+        }
         let response = client::request(
             &options.socket,
             &options.token_file,
@@ -86,12 +103,12 @@ pub async fn run(options: BatchOptions) -> Result<i32, String> {
         match response {
             Ok(value) => {
                 let ok = value.get("ok").and_then(Value::as_bool).unwrap_or(false);
-                let path = output_path(&options.output_dir, total, &tool);
                 output::print_json_with_options(&value, options.compact, Some(&path))?;
                 let summary = json!({
                     "index": total,
                     "tool": tool,
                     "ok": ok,
+                    "skipped": false,
                     "output": path.display().to_string(),
                     "error": if ok {
                         Value::Null
@@ -116,6 +133,7 @@ pub async fn run(options: BatchOptions) -> Result<i32, String> {
                     "index": total,
                     "tool": tool,
                     "ok": false,
+                    "skipped": false,
                     "output": Value::Null,
                     "error": error
                 });

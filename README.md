@@ -131,7 +131,8 @@ deskctl batch --file .\batch.jsonl --session <session_id> --session-token-file .
 
 Batch calls run sequentially (the daemon's Vision gate is serialized), print
 one JSON summary line per request, and write one result file per request.
-Add `--stop-on-error` to stop after the first failure.
+Add `--stop-on-error` to stop after the first failure, or `--skip-existing` to
+resume a partial batch without re-running requests whose output file exists.
 
 ## MCP
 

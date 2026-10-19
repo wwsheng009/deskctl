@@ -112,6 +112,9 @@ enum Commands {
         /// Stop after the first failed item.
         #[arg(long)]
         stop_on_error: bool,
+        /// Skip requests whose output file already exists.
+        #[arg(long)]
+        skip_existing: bool,
     },
     /// Extract text and embedded images from a Word document via Word COM.
     DocExtract {
@@ -507,6 +510,7 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
             output_dir,
             compact,
             stop_on_error,
+            skip_existing,
         } => {
             let session_token = resolve_session_token(session_token, session_token_file)?;
             batch::run(batch::BatchOptions {
@@ -518,6 +522,7 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
                 output_dir,
                 compact,
                 stop_on_error,
+                skip_existing,
             })
             .await
         }
