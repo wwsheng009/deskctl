@@ -12,6 +12,12 @@ pub struct Config {
     pub models_dir: PathBuf,
     pub output_dir: PathBuf,
     pub max_sessions: usize,
+    /// Per-owner active session cap; `0` disables the extra limit
+    /// (`DESKCTL_OWNER_MAX_SESSIONS`, default `0`).
+    pub owner_max_sessions: usize,
+    /// Reported by `doctor`; the resource gate keeps FIFO fairness regardless
+    /// (`DESKCTL_OWNER_FAIRNESS`, default on).
+    pub owner_fairness: bool,
     pub profile: ToolProfile,
     pub capture_cache_limit: usize,
     pub observation_ttl: Duration,
@@ -27,6 +33,8 @@ impl Default for Config {
             models_dir: models_dir().unwrap_or_else(|| data_dir().join("models")),
             output_dir: data_dir().join("captures"),
             max_sessions: env_usize("DESKCTL_MAX_SESSIONS", 8),
+            owner_max_sessions: env_usize("DESKCTL_OWNER_MAX_SESSIONS", 0),
+            owner_fairness: env_bool_on("DESKCTL_OWNER_FAIRNESS"),
             profile: std::env::var("DESKCTL_PROFILE")
                 .ok()
                 .and_then(|value| value.parse().ok())
@@ -123,6 +131,18 @@ fn env_u64(name: &str, default: u64) -> u64 {
         .ok()
         .and_then(|value| value.parse().ok())
         .unwrap_or(default)
+}
+
+/// Boolean env flag that defaults to on; an explicit `0`/`off`/`false`/`no`
+/// turns it off.
+fn env_bool_on(name: &str) -> bool {
+    match std::env::var(name) {
+        Ok(value) => !matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "0" | "off" | "false" | "no"
+        ),
+        Err(_) => true,
+    }
 }
 
 pub fn config_dir() -> PathBuf {

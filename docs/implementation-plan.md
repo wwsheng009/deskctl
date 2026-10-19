@@ -627,3 +627,9 @@ scripts/package-models.ps1
 - D1 审计与历史已实施（2026-10-19）：daemon/oneshot/MCP 全链路 JSONL 审计（脱敏、轮转、保留、
   降级）+ `deskctl history` 过滤/聚合；工具数与协议不变（见
   [design/audit-history.md](design/audit-history.md)、[implementation-status.md](implementation-status.md)）。
+- D2 Agent 身份已实施（2026-10-19）：`session create`/`deskctl tool` 的 `--owner`（小写规范化、
+  字符集 `[a-zA-Z0-9._:@-]`、1..64、保留名拒绝）、MCP `clientInfo.name`→`mcp:<name>`、
+  `session list --owner` 过滤、`DESKCTL_OWNER_MAX_SESSIONS` per-owner 限额（超限 `resource_busy`）、
+  审计归因与 `history --owner`（`prefix*` 通配）/`by_owner` 聚合、`doctor.owner_limits`；
+  工具数与协议不变（见 [design/agent-identity.md](design/agent-identity.md)、
+  [implementation-status.md](implementation-status.md)）。

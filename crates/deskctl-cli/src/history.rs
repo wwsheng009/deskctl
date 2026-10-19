@@ -176,7 +176,10 @@ fn matches_filters(
         }
     }
     if let Some(owner) = &options.owner {
-        if record["owner"].as_str() != Some(owner.as_str()) {
+        let matched = record["owner"]
+            .as_str()
+            .is_some_and(|current| owner_matches(owner, current));
+        if !matched {
             return false;
         }
     }
@@ -235,9 +238,18 @@ fn parse_time(
         })
 }
 
+/// `--owner` matching: an exact label, or a `prefix*` pattern such as
+/// `agent:sap-*` (design §6). Only a trailing `*` is treated as a wildcard.
+fn owner_matches(pattern: &str, owner: &str) -> bool {
+    match pattern.strip_suffix('*') {
+        Some(prefix) => owner.starts_with(prefix),
+        None => pattern == owner,
+    }
+}
+
 fn summarize(records: &[Value], since: DateTime<Local>, until: DateTime<Local>) -> Value {
     let mut by_tool: BTreeMap<String, (usize, usize, usize, usize, Vec<u64>)> = BTreeMap::new();
-    let mut by_owner: BTreeMap<String, (usize, usize)> = BTreeMap::new();
+    let mut by_owner: BTreeMap<String, (usize, usize, usize, usize, Vec<u64>)> = BTreeMap::new();
     let mut calls = 0usize;
     let mut failed = 0usize;
 
@@ -266,11 +278,18 @@ fn summarize(records: &[Value], since: DateTime<Local>, until: DateTime<Local>) 
             entry.3 += 1;
         }
         entry.4.push(duration);
-        let owner_entry = by_owner.entry(owner).or_insert((0, 0));
+        let owner_entry = by_owner.entry(owner).or_insert((0, 0, 0, 0, Vec::new()));
         owner_entry.0 += 1;
         if !ok {
             owner_entry.1 += 1;
         }
+        if dispatch == "not_sent" {
+            owner_entry.2 += 1;
+        }
+        if dispatch == "unknown" {
+            owner_entry.3 += 1;
+        }
+        owner_entry.4.push(duration);
     }
 
     let mut tools: Vec<Value> = by_tool
@@ -299,7 +318,21 @@ fn summarize(records: &[Value], since: DateTime<Local>, until: DateTime<Local>) 
 
     let owners: Vec<Value> = by_owner
         .into_iter()
-        .map(|(owner, (calls, failed))| json!({"owner": owner, "calls": calls, "failed": failed}))
+        .map(
+            |(owner, (calls, failed, not_sent, unknown, mut durations))| {
+                durations.sort_unstable();
+                json!({
+                    "owner": owner,
+                    "calls": calls,
+                    "ok": calls.saturating_sub(failed),
+                    "failed": failed,
+                    "not_sent": not_sent,
+                    "unknown": unknown,
+                    "p50_ms": quantile(&durations, 0.50),
+                    "p95_ms": quantile(&durations, 0.95),
+                })
+            },
+        )
         .collect();
 
     let failure_rate = if calls == 0 {

@@ -108,6 +108,20 @@ pub async fn run(profile: ToolProfile, skill_root: PathBuf) -> Result<(), String
 
         let result = match method {
             "initialize" => {
+                if !initialized {
+                    let owner = mcp_owner(&params);
+                    session.set_owner(owner.clone());
+                    let client_version = params
+                        .pointer("/clientInfo/version")
+                        .and_then(Value::as_str)
+                        .unwrap_or("unknown")
+                        .to_string();
+                    tracing::info!(
+                        owner = %owner,
+                        version = %client_version,
+                        "MCP client initialized"
+                    );
+                }
                 initialized = true;
                 initialize_result(&params)
             }
@@ -274,6 +288,42 @@ fn initialize_result(params: &Value) -> Result<Value, (i32, String)> {
         },
         "instructions": "Deskctl exposes desktop_* tools. Use desktop_semantic_* for Windows UIA, and desktop_perceive for image coordinates. No approval flow is provided."
     }))
+}
+
+/// Map MCP `clientInfo.name` to an owner label (design §2/§3): `mcp:<name>`,
+/// lowercased and sanitized to the owner charset, truncated so the label stays
+/// within 64 characters; `mcp:unknown` when the client sends no usable name.
+/// The `mcp:` namespace belongs to the server itself, so this mapping skips
+/// [`deskctl_core::session::validate_owner`]. The client `version` is written
+/// to the server log only (it is not part of the identity).
+fn mcp_owner(params: &Value) -> String {
+    let name = params
+        .pointer("/clientInfo/name")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let sanitized: String = name
+        .to_ascii_lowercase()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '@' | '-') {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let trimmed = sanitized.trim_matches('-');
+    if trimmed.is_empty() {
+        return "mcp:unknown".to_string();
+    }
+    let mut truncated: String = trimmed.chars().take(60).collect();
+    while truncated.ends_with('-') {
+        truncated.pop();
+    }
+    if truncated.is_empty() {
+        return "mcp:unknown".to_string();
+    }
+    format!("mcp:{truncated}")
 }
 
 async fn write_response(

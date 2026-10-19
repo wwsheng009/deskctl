@@ -37,6 +37,9 @@ enum Commands {
         json: Option<String>,
         #[arg(long)]
         stdin: bool,
+        /// Attribution label for audit records (default `oneshot`).
+        #[arg(long)]
+        owner: Option<String>,
     },
     /// Start the local daemon.
     Serve {
@@ -148,12 +151,18 @@ enum SessionCommands {
     Create {
         #[arg(long)]
         profile: Option<String>,
+        /// Attribution label for audit records (default `daemon-client`).
+        #[arg(long)]
+        owner: Option<String>,
         #[arg(long)]
         socket: Option<String>,
         #[arg(long)]
         token_file: Option<PathBuf>,
     },
     List {
+        /// Only show sessions with this exact owner label.
+        #[arg(long)]
+        owner: Option<String>,
         #[arg(long)]
         socket: Option<String>,
         #[arg(long)]
@@ -208,8 +217,20 @@ async fn main() {
 
 async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
     match command {
-        Commands::Tool { name, json, stdin } => {
+        Commands::Tool {
+            name,
+            json,
+            stdin,
+            owner,
+        } => {
             let args = read_args(json, stdin)?;
+            let owner = match owner {
+                Some(raw) => Some(
+                    deskctl_core::session::validate_owner(&raw)
+                        .map_err(|error| error.to_string())?,
+                ),
+                None => None,
+            };
             let tool = match name.parse::<ToolName>() {
                 Ok(tool) => tool,
                 Err(error) => {
@@ -235,7 +256,7 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
                 }
             };
             let engine = Engine::new(config_for(profile));
-            let result = engine.execute_oneshot(tool, args).await;
+            let result = engine.execute_oneshot_as(tool, args, owner).await;
             engine.flush_audit();
             println!(
                 "{}",
@@ -300,19 +321,34 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
             let (method, params, socket, token_file) = match command {
                 SessionCommands::Create {
                     profile,
+                    owner,
+                    socket,
+                    token_file,
+                } => {
+                    let owner = match owner {
+                        Some(raw) => Some(
+                            deskctl_core::session::validate_owner(&raw)
+                                .map_err(|error| error.to_string())?,
+                        ),
+                        None => None,
+                    };
+                    (
+                        "session/create",
+                        serde_json::json!({
+                            "profile": profile.unwrap_or_else(|| "standard".to_string()),
+                            "owner": owner
+                        }),
+                        socket.unwrap_or_else(config::default_socket_name),
+                        token_file.unwrap_or_else(config::token_path),
+                    )
+                }
+                SessionCommands::List {
+                    owner,
                     socket,
                     token_file,
                 } => (
-                    "session/create",
-                    serde_json::json!({
-                        "profile": profile.unwrap_or_else(|| "standard".to_string())
-                    }),
-                    socket.unwrap_or_else(config::default_socket_name),
-                    token_file.unwrap_or_else(config::token_path),
-                ),
-                SessionCommands::List { socket, token_file } => (
                     "session/list",
-                    serde_json::json!({}),
+                    serde_json::json!({ "owner": owner }),
                     socket.unwrap_or_else(config::default_socket_name),
                     token_file.unwrap_or_else(config::token_path),
                 ),

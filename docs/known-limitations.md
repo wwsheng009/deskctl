@@ -94,4 +94,12 @@
 - 审计在调用线程的固定开销（时间戳/digest/入队）约 +30–40 µs/call；对亚毫秒级微操作
   （如 `desktop_screen_size`）的相对占比会被放大，对 screenshot 类操作 p95 影响 ≤0.5%
   （见 performance-baseline §5）。
+- owner 是归因标签，不是鉴权凭据：同机调用方可自报任意（非保留）owner 创建会话；会话隔离仍
+  依赖 token 与本机 ACL。`DESKCTL_OWNER_MAX_SESSIONS` 默认 0（不限制），开启后按 owner 限制
+  活跃会话数，超限 `resource_busy`（消息含现值，0 可关闭）。
+- 审计不含每次资源门 acquire 的等待时长（审计记录格式 v1 已冻结，新增字段需版本流程）；
+  多 Agent 并发下的公平性依赖现有 FIFO 资源门与 AC-SESS-009 无饥饿验证。
+- MCP `clientInfo.version` 只写入服务日志（stderr，受 `DESKCTL_LOG` 控制），不参与身份与审计
+  字段；`clientInfo.name` 缺失/为空时为 `mcp:unknown`，名称会小写化并按 `[a-z0-9._:@-]`
+  清洗（非法字符→`-`）且截断至 60 字符。
 

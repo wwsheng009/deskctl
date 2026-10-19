@@ -126,7 +126,7 @@ pub struct Session {
     pub id: String,
     pub token: String,
     pub profile: ToolProfile,
-    pub owner: String,
+    owner: Mutex<String>,
     pub created_at: Instant,
     captures: Mutex<HashMap<String, CaptureState>>,
     targets: Mutex<HashMap<String, TargetBinding>>,
@@ -149,7 +149,7 @@ impl Session {
             id: format!("sess-{}", uuid::Uuid::new_v4().simple()),
             token: format!("st-{}", uuid::Uuid::new_v4().simple()),
             profile,
-            owner: owner.into(),
+            owner: Mutex::new(owner.into()),
             created_at: Instant::now(),
             captures: Mutex::new(HashMap::new()),
             targets: Mutex::new(HashMap::new()),
@@ -164,6 +164,24 @@ impl Session {
 
     pub fn allows(&self, tool: ToolName) -> bool {
         tool.profile_allows(self.profile)
+    }
+
+    /// Owner label used for audit attribution. This is a label, not an auth
+    /// boundary; token checks stay untouched by it.
+    pub fn owner(&self) -> String {
+        self.owner
+            .lock()
+            .map(|value| value.clone())
+            .unwrap_or_else(|poisoned| poisoned.into_inner().clone())
+    }
+
+    /// Update the attribution label. Only the MCP server uses this: it learns
+    /// the client identity from `initialize` after the session was created,
+    /// and no tool call can run before `initialize` has been handled.
+    pub fn set_owner(&self, owner: impl Into<String>) {
+        if let Ok(mut value) = self.owner.lock() {
+            *value = owner.into();
+        }
     }
 
     pub fn close(&self) {
@@ -271,7 +289,7 @@ impl Session {
         json!({
             "session_id": self.id,
             "profile": self.profile,
-            "owner": self.owner,
+            "owner": self.owner(),
             "closed": self.is_closed(),
             "captures": captures,
             "targets": targets,
@@ -432,4 +450,119 @@ impl Session {
 
 fn internal(message: impl Into<String>) -> ToolError {
     ToolError::new(ErrorCode::Internal, message)
+}
+
+/// 保留 owner 命名：这些标签只由内部调用方（daemon / MCP server / 一次性 CLI /
+/// bench）设置，外部显式传入时一律拒绝（见 docs/design/agent-identity.md §3）。
+pub const RESERVED_OWNER_NAMES: &[&str] = &["daemon-client", "mcp", "oneshot", "bench"];
+
+/// 校验并规范化调用方传入的 owner 标签：
+///
+/// - 允许字符 `[a-zA-Z0-9._:@-]`、长度 1..=64、统一小写；
+/// - 非法字符与保留命名（`daemon-client`/`mcp`/`mcp:*`/`oneshot`/`bench`/`system*`）
+///   返回 `invalid_params`，不做静默清洗；
+/// - owner 是归因标签，不是鉴权凭据（安全模型仍是 token + 本机 ACL）。
+pub fn validate_owner(raw: &str) -> Result<String, ToolError> {
+    let normalized = raw.to_ascii_lowercase();
+    let length = normalized.chars().count();
+    if normalized.is_empty() || length > 64 {
+        return Err(ToolError::new(
+            ErrorCode::InvalidParams,
+            format!("owner must be 1..=64 characters, got {length}"),
+        ));
+    }
+    if let Some(bad) = normalized
+        .chars()
+        .find(|c| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '@' | '-')))
+    {
+        return Err(ToolError::new(
+            ErrorCode::InvalidParams,
+            format!("owner contains invalid character '{bad}'; allowed: [a-zA-Z0-9._:@-]"),
+        ));
+    }
+    if is_reserved_owner(&normalized) {
+        return Err(ToolError::new(
+            ErrorCode::InvalidParams,
+            format!("owner is reserved: '{normalized}' is an internal identity"),
+        ));
+    }
+    Ok(normalized)
+}
+
+fn is_reserved_owner(normalized: &str) -> bool {
+    RESERVED_OWNER_NAMES.contains(&normalized)
+        || normalized.starts_with("mcp:")
+        || normalized.starts_with("system")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_owner_normalizes_and_accepts() {
+        assert_eq!(
+            validate_owner("Agent:SAP-Inspector").unwrap(),
+            "agent:sap-inspector"
+        );
+        assert_eq!(
+            validate_owner("user:ops.1@corp-2").unwrap(),
+            "user:ops.1@corp-2"
+        );
+        assert_eq!(validate_owner("a").unwrap(), "a");
+        assert_eq!(validate_owner(&"x".repeat(64)).unwrap().len(), 64);
+    }
+
+    #[test]
+    fn validate_owner_rejects_invalid_and_reserved() {
+        for bad in [
+            "",
+            "agent:bad name",
+            "agent:不良",
+            "agent/x",
+            "agent\nnewline",
+        ] {
+            let error = validate_owner(bad).unwrap_err();
+            assert_eq!(error.code, ErrorCode::InvalidParams, "input {bad:?}");
+        }
+        assert_eq!(
+            validate_owner(&"x".repeat(65)).unwrap_err().code,
+            ErrorCode::InvalidParams
+        );
+        for reserved in [
+            "daemon-client",
+            "MCP",
+            "mcp:evil",
+            "oneshot",
+            "bench",
+            "system-root",
+            "SYSTEM",
+        ] {
+            let error = validate_owner(reserved).unwrap_err();
+            assert_eq!(
+                error.code,
+                ErrorCode::InvalidParams,
+                "reserved {reserved:?}"
+            );
+            assert!(
+                error.message.contains("reserved"),
+                "message must say reserved: {}",
+                error.message
+            );
+        }
+    }
+
+    #[test]
+    fn session_owner_can_be_reassigned_for_mcp_initialize() {
+        let session = Session::new(
+            ToolProfile::Standard,
+            "mcp",
+            32,
+            std::time::Duration::from_secs(1),
+        );
+        assert_eq!(session.owner(), "mcp");
+        session.set_owner("mcp:tester");
+        assert_eq!(session.owner(), "mcp:tester");
+        assert_eq!(session.summary()["owner"], "mcp:tester");
+    }
 }

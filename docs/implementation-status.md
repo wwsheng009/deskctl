@@ -19,6 +19,7 @@
 | M8 打包与发布 | 部分完成 | 运行时/模型获取、哈希校验、安装脚本与 Inno Setup 模板完成；性能基线与安全/会话矩阵（12/12，含输入串行与公平性）已实测（`scripts/perf-baseline.ps1`、`scripts/security-check.ps1`）；干净机安装、代码签名与 Windows 10 回归待发布流水线 |
 | I1 输入模拟增强 | 完成（待真机回归） | `desktop_mouse` 新增 `move_relative`/`down`/`up` 与 `hold_ms`/`jitter_px`，`desktop_mouse_drag` 支持 `path`/`speed`/`humanize`，`desktop_input` 新增 `key`/`key_down`/`key_up`（名字/VK/扫描码、长按与重复）与拟人打字；PCG32 轨迹/节奏采样（`humanize` 默认 off，seed 可复现）；工具数保持 36；单测覆盖轨迹/键码/限额；真机回归清单见 test-plan §7.2 |
 | D1 审计与历史 | 完成 | daemon/oneshot/MCP 全链路审计（JSONL v1：basic/full、文本 digest、键名单脱敏、轮转/保留/总量清理、写失败降级 disabled）；`deskctl history`（session/owner/tool/run/since/until/failed-only/kind/limit/json/summary/dir）；协议与工具数不变；契约测试 7 + 单测 15；开销 A/B p95 ≤0.5%（见 performance-baseline §5） |
+| D2 Agent 身份 | 完成 | `session create --owner`（小写规范化、`[a-zA-Z0-9._:@-]`、1..64、保留名拒绝）；MCP `clientInfo.name`→`mcp:<name>`（缺失 `mcp:unknown`）；`session list --owner` 精确过滤；`DESKCTL_OWNER_MAX_SESSIONS` per-owner 限额（超限 `resource_busy`）且不影响其他 owner；审计归因与 `history --owner`（`prefix*` 通配）/`by_owner`（p50/p95）；`doctor.owner_limits`；协议与工具数不变；契约测试 4 + 单测 3 |
 
 ## 2. 已验证能力
 
@@ -110,16 +111,27 @@
   `--limit`、`--json`、`--summary`（含 p50/p95）、`--dir` 覆盖均通过契约测试；daemon 不在也可查
 - 审计开销 A/B（`scripts/audit-perf-ab.ps1`，release）：screenshot 类操作 p95 变化 ≤0.5%；
   `screen_size` 微操作 +30–40 µs/call（绝对量），见 performance-baseline §5
+- D2 身份与归因（AC-AGT-001）：`session create --owner agent:x` 返回并显示于 `session list`；
+  `Agent:Alpha-1` 规范化为 `agent:alpha-1`；`session list --owner <label>` 精确过滤；
+  非法字符（空格/非 ASCII/超长 65）与保留名（`daemon-client`/`mcp`/`mcp:*`/`oneshot`/`bench`/`system*`）
+  返回 `invalid_params`（exit 2，CLI 与 daemon 两侧校验，单测 + 契约测试覆盖）
+- D2 MCP 映射（AC-AGT-002）：`initialize.clientInfo.name` → `mcp:<name>`（小写、非法字符替换 `-`、
+  截断 60 字符；`Claude Desktop`→`mcp:claude-desktop`）；无 clientInfo → `mcp:unknown`；
+  `version` 写服务日志不做身份（契约测试经审计记录断言）
+- D2 限额（AC-AGT-004）：`DESKCTL_OWNER_MAX_SESSIONS=2` 时同 owner 第 3 个会话 `resource_busy`
+  （exit 5，消息含 owner 与现值），其他 owner 与默认 `daemon-client` 不受影响；默认 0 不启用
+- D2 归因查询（AC-AGT-003）：同会话跨调用审计 `owner` 一致；`history --owner`（精确 + `prefix*`）
+  过滤与 `--summary.by_owner[]`（calls/ok/failed/not_sent/unknown/p50/p95）聚合通过契约测试
 
 ## 3. 测试状态
 
 `cargo test --workspace` 通过：
 
 ```text
-deskctl-cli:      20 passed（audit_history 7、cli_contract 3、mcp_smoke 3、skills_contract 1、tool_contract 6）
-deskctl-core:     76 passed（lib 70、path_policy 2、session_isolation 4）
+deskctl-cli:      27 passed（agent_identity 4、audit_history 7、cli_contract 3、mcp_smoke 4、skills_contract 1、tool_contract 6、main 单测 2）
+deskctl-core:     79 passed（lib 73、path_policy 2、session_isolation 4）
 deskctl-protocol:  3 passed
-合计:             99 passed, 0 failed
+合计:            109 passed, 0 failed
 ```
 
 `cargo fmt --all -- --check` 与 `cargo clippy --workspace --all-targets -- -D warnings` 均无告警
@@ -155,6 +167,11 @@ deskctl-protocol:  3 passed
   写失败降级、off 不落盘（audit 单测）
 - D1 契约：oneshot 审计与查询字段、失败入账、`--summary` 聚合、`--dir` 覆盖与非法 `--kind`、
   off 模式提示、daemon E2E 恰好一条（含失败）、审计目录不可用降级（audit_history 契约测试）
+- D2 身份：`validate_owner` 小写规范化、非法字符/长度/保留名拒绝、owner 可重设（MCP initialize）
+  （session 单测）
+- D2 契约：owner 创建/规范化/列表过滤/非法拒绝、per-owner 限额（`resource_busy` exit 5）与跨 owner
+  不受影响、审计归因与 `history --owner`（精确 + `prefix*`）/`by_owner` 聚合、MCP clientInfo 映射
+  （含含空格名清洗）与缺失回退 `mcp:unknown`（agent_identity 契约测试）
 
 ## 4. 运行时资源
 

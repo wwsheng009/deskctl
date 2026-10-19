@@ -263,6 +263,28 @@ tests/fixtures/
 **开销门禁**：`pwsh scripts/audit-perf-ab.ps1 -Binary <release>`——审计 off vs basic 的
 `window_screenshot` p95 变化 <5%（实测 ≤0.5%，见 [performance-baseline.md](performance-baseline.md) §5）。
 
+### 7.7 Agent 身份（D2）
+
+**AC-AGT-001 owner 参数**：`session create --owner agent:x` 返回 owner 并显示于 `session list`；
+`Agent:Alpha-1` 规范化为 `agent:alpha-1`；`session list --owner <label>` 精确过滤；非法字符
+（空格/非 ASCII/超长 65）与保留名（`daemon-client`/`mcp`/`mcp:*`/`oneshot`/`bench`/`system*`）
+返回 `invalid_params`（exit 2；CLI 与 daemon 双侧校验；契约测试 + 单测覆盖）。
+
+**AC-AGT-002 MCP 映射**：`initialize.clientInfo.name` → `mcp:<name>`（小写、非法字符替换为 `-`、
+截断 60 字符；`"Claude Desktop"` → `mcp:claude-desktop`）；缺失/空名 → `mcp:unknown`；
+`clientInfo.version` 只写服务日志不做身份（契约测试经审计归因断言）。
+
+**AC-AGT-003 归因**：同会话跨调用审计 `owner` 一致；`history --owner`（精确与 `prefix*` 通配）
+与 `--summary.by_owner[]`（calls/ok/failed/not_sent/unknown/p50/p95）按身份过滤/聚合
+（契约测试覆盖）。
+
+**AC-AGT-004 限额**：`DESKCTL_OWNER_MAX_SESSIONS=2` 时同 owner 第 3 个会话 `resource_busy`
+（exit 5，消息含 owner 与现值），其他 owner 与默认 `daemon-client` 不受影响；默认 0 不启用
+（契约测试覆盖）。
+
+**观测**：`doctor` 的 `daemon.owner_limits` 输出 `max_sessions_per_owner`/`fairness` 与
+"标签（非鉴权）"说明。
+
 ## 8. 端到端场景
 
 ### E2E-001 截图点击

@@ -103,6 +103,7 @@ impl Engine {
         owner: impl Into<String>,
     ) -> Result<SessionInfo, ToolError> {
         self.gc_sessions();
+        let owner = owner.into();
         let mut sessions = self
             .sessions
             .write()
@@ -117,9 +118,26 @@ impl Engine {
             )
             .retryable(true));
         }
+        if self.config.owner_max_sessions > 0 {
+            let owned = sessions
+                .values()
+                .filter(|session| session.owner() == owner)
+                .count();
+            if owned >= self.config.owner_max_sessions {
+                return Err(ToolError::new(
+                    ErrorCode::ResourceBusy,
+                    format!(
+                        "owner '{owner}' already has {owned} active sessions (limit {}; set \
+                         DESKCTL_OWNER_MAX_SESSIONS=0 to disable)",
+                        self.config.owner_max_sessions
+                    ),
+                )
+                .retryable(true));
+            }
+        }
         let session = Arc::new(Session::new(
             profile.unwrap_or(self.config.profile),
-            owner.into(),
+            owner,
             self.config.capture_cache_limit,
             self.config.observation_ttl,
         ));
@@ -127,7 +145,7 @@ impl Engine {
             session_id: session.id.clone(),
             session_token: session.token.clone(),
             profile: session.profile,
-            owner: session.owner.clone(),
+            owner: session.owner(),
         };
         sessions.insert(session.id.clone(), session);
         Ok(info)
@@ -181,10 +199,21 @@ impl Engine {
         self.get_session(session_id, Some(token))
     }
 
-    pub fn list_sessions(&self) -> Vec<serde_json::Value> {
+    /// Session summaries, optionally filtered by exact owner label (used by
+    /// `session list --owner`).
+    pub fn list_sessions(&self, owner: Option<&str>) -> Vec<serde_json::Value> {
         self.sessions
             .read()
-            .map(|sessions| sessions.values().map(|session| session.summary()).collect())
+            .map(|sessions| {
+                sessions
+                    .values()
+                    .map(|session| session.summary())
+                    .filter(|summary| match owner {
+                        Some(wanted) => summary["owner"].as_str() == Some(wanted),
+                        None => true,
+                    })
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -242,6 +271,17 @@ impl Engine {
         tool: ToolName,
         args: serde_json::Value,
     ) -> impl std::future::Future<Output = ToolResult> + Send {
+        self.execute_oneshot_as(tool, args, None)
+    }
+
+    /// Like [`Engine::execute_oneshot`], with an explicit attribution label
+    /// (`deskctl tool --owner`); internal callers default to `oneshot`.
+    pub fn execute_oneshot_as(
+        self: &Arc<Self>,
+        tool: ToolName,
+        args: serde_json::Value,
+        owner: Option<String>,
+    ) -> impl std::future::Future<Output = ToolResult> + Send {
         let engine = self.clone();
         async move {
             if tool.meta().requires_session {
@@ -256,7 +296,7 @@ impl Engine {
             }
             let session = Arc::new(Session::new(
                 ToolProfile::Full,
-                "oneshot".to_string(),
+                owner.unwrap_or_else(|| "oneshot".to_string()),
                 engine.config.capture_cache_limit,
                 engine.config.observation_ttl,
             ));
@@ -289,7 +329,7 @@ impl Engine {
         } else {
             None
         };
-        let audit_owner = session.owner.clone();
+        let audit_owner = session.owner();
         let audit_session_id = session.id.clone();
         let audit_request_id = request_id.clone();
         let joined = tokio::spawn(async move {

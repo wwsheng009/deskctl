@@ -345,7 +345,8 @@ Windows 首个可用版本必须同时满足：
 > 方案见 [design/README.md](design/README.md)（D1–D4 里程碑）。以下编号为**草案登记**，
 > 逐项实现并通过验证后，从本节移入对应正式章节（第 3/4/6/7/9 节）并解除"规划中"标记。
 >
-> 进度：D1（审计与历史）已于 2026-10-19 实现并通过验证（见 §15.1）；D2–D4 与其余独立小改动仍为规划中。
+> 进度：D1（审计与历史）已于 2026-10-19 实现并通过验证（见 §15.1）；D2（Agent 身份）已于 2026-10-19
+> 实现并通过验证（见 §15.2）；D3–D4 与其余独立小改动仍为规划中。
 
 ### 15.1 审计与历史（D1，P0，已实施 2026-10-19）
 
@@ -366,7 +367,13 @@ Windows 首个可用版本必须同时满足：
 | AC-AUD-007 | 脱敏增强 | 密码字段（UIA `IsPassword=true`）永不落盘；键名单命中值替换为 `<redacted>`；全文检索无命中 |
 | AC-AUD-008 | 日志与 run 产物 | tracing 日志沿用与审计相同的脱敏规则（默认级别不含 args/文本明文）；run 产物（`expanded.jsonl` 等）固定落在 `%LOCALAPPDATA%\deskctl\runs\<run_id>\` 并受同一保留策略约束；`history --run <id>` 可过滤该 run 的全部记录 |
 
-### 15.2 Agent 身份（D2，P1）
+### 15.2 Agent 身份（D2，P1，已实施 2026-10-19）
+
+> 已验证（AC-AGT-001..004）：证据见 [implementation-status.md](implementation-status.md) §2/§6；
+> 判据测试在 `crates/deskctl-cli/tests/agent_identity.rs`（owner 创建/规范化/拒绝、`session list --owner`
+> 过滤、MCP clientInfo 映射、审计归因与 `history --owner`/`--summary`、per-owner 限额）与
+> `crates/deskctl-core/src/session.rs` 单测（`validate_owner` 规范化/非法字符/保留名）。
+> 有意保留未实现：审计中 per-acquire `wait_ms`（审计记录格式 v1 冻结）；owner 仍是标签而非鉴权。
 
 | 编号 | 验收项 | 通过标准 |
 |---|---|---|

@@ -2,7 +2,7 @@
 
 - 文档版本：0.1
 - 日期：2026-10-19
-- 状态：Draft（待评审）
+- 状态：已实施 2026-10-19（AC-AGT-001..004；证据见 [../implementation-status.md](../implementation-status.md)）
 - 关联：[README.md](README.md)、[audit-history.md](audit-history.md)、[../architecture.md](../architecture.md)
 
 ## 1. 目标
@@ -25,6 +25,10 @@
 | `deskctl tool`（一次性） | `--owner`（新增，可选） | 原样 | `oneshot` |
 | bench / 内部 | 固定 | `bench` | — |
 
+MCP 的 `clientInfo.name` 在映射前统一小写并按 §3 字符集清洗（非法字符替换为 `-`、截断到 60 字符、
+空名回退 `unknown`）；`clientInfo.version` 只写入 MCP 服务日志（stderr，受 `DESKCTL_LOG` 控制），
+不参与身份。
+
 owner 只在**创建会话时**确定；同一会话内所有调用的审计记录都使用该 owner（由 `Session.owner` 带出，调用方无需每次传参）。
 
 ## 3. 规范化（所有入口统一）
@@ -38,7 +42,8 @@ owner 只在**创建会话时**确定；同一会话内所有调用的审计记�
 
 - `session/create` 参数新增 `owner`（可选）；返回体不变（`session_id/session_token/profile/owner`，owner 已在 `SessionInfo` 中）。
 - 会话隔离与 token 鉴权**完全不变**：owner 不参与 `require_session` 校验；不同 owner 的会话仍互不可见 token（AC-SESS-002 不变）。
-- `session list` 每行已含 owner；CLI 表格新增 `OWNER` 列（当前 JSON 输出不变）。
+- `session list` 输出（JSON 数组）每行已含 owner；新增 `--owner <label>` 精确过滤（JSON 契约不变；未做表格输出）。
+- `doctor`（daemon 对象）新增 `owner_limits`：`max_sessions_per_owner`/`fairness` 与"标签（非鉴权）"提示语。
 - 审计记录 `owner` 字段来自会话（见 [data-formats.md](data-formats.md#1-审计记录deskctl-audit1)）。
 
 ## 5. 限额与公平（可选，默认关闭）
@@ -46,17 +51,22 @@ owner 只在**创建会话时**确定；同一会话内所有调用的审计记�
 | 配置 | 默认 | 行为 |
 |---|---|---|
 | `DESKCTL_OWNER_MAX_SESSIONS` | `0`（不额外限制） | >0 时按 owner 限制活跃会话数；超限 `resource_busy`，消息含 owner 与现有限额 |
-| `DESKCTL_OWNER_FAIRNESS` | `on` | 资源门保持 FIFO（现有 `tokio::Semaphore` 公平语义）；开启时在审计中记录每次 acquire 的 `wait_ms` |
+| `DESKCTL_OWNER_FAIRNESS` | `on` | 资源门保持 FIFO（现有 `tokio::Semaphore` 公平语义）；仅作为配置上报（`doctor.owner_limits`） |
 
 要点：资源门是**全局**（Vision=1/Capture=4/Semantic=1/Input=1），不做 per-owner 拆分，避免小 agent 互相饿死；公平性依赖 FIFO + 现有 AC-SESS-009 无饥饿验证。
+审计中的 per-acquire `wait_ms` 记录**本期未实现**（审计记录格式 v1 已冻结，新增字段需走格式版本流程）。
 
 ## 6. 观测
 
-- `deskctl history --owner agent:sap-*`，`--summary` 输出 `by_owner[]`（calls/ok/failed/not_sent/unknown/p50/p95）。
-- `session list --owner <id>`（新增过滤，可选）。
-- 可选：`doctor` 打印 `owner_limits`（当前配置）便于排查。
+- `deskctl history --owner agent:sap-*`（精确或 `prefix*` 通配），`--summary` 输出 `by_owner[]`（calls/ok/failed/not_sent/unknown/p50/p95）。
+- `session list --owner <id>`（精确过滤）。
+- `doctor` 打印 `owner_limits`（当前配置 + 标签说明）便于排查。
 
 ## 7. 验收标准（AC-AGT-001..004）
+
+> 已实施并验证 2026-10-19：判据测试在 `crates/deskctl-cli/tests/agent_identity.rs`（4 项契约）
+> 与 `crates/deskctl-core/src/session.rs` 单测（`validate_owner` 规范化/保留名）；
+> 证据汇总见 [../implementation-status.md](../implementation-status.md) §2。
 
 | 编号 | 通过标准 | 验证方法 |
 |---|---|---|
@@ -82,6 +92,6 @@ owner 只在**创建会话时**确定；同一会话内所有调用的审计记�
 
 | 风险 | 说明 | 缓解 |
 |---|---|---|
-| owner 被当作安全边界 | 同机任意进程都能用任意 owner 创建会话 | 文档与 `session list` 输出标注"标签（非鉴权）"；安全模型仍以 token + 本机 ACL 为准 |
+| owner 被当作安全边界 | 同机任意进程都能用任意（未保留）owner 创建会话 | 文档与 `doctor.owner_limits` 标注"标签（非鉴权）"；安全模型仍以 token + 本机 ACL 为准 |
 | 保留前缀伪造 | 第三方冒充 `daemon-client` 污染审计 | §3 保留前缀拒绝 |
 | 限额误伤 | 单 Agent 起多会话的工作流被 `OWNER_MAX_SESSIONS` 阻断 | 默认关闭；开启时错误消息给出当前值与建议 |

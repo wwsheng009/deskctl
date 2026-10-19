@@ -31,7 +31,7 @@ JSONL：一行一条。`format` 不在每行重复，由文件头约定（文件
 | `kind` | string | ✓ | `tool_call` / `session` / `audit_health` |
 | `request_id` | string? | — | `req:<hex>` / `oneshot-<uuid>` |
 | `session_id` | string? | — | 会话 id |
-| `owner` | string | ✓ | 身份标签（默认 `daemon-client` / `mcp` / `oneshot`） |
+| `owner` | string | ✓ | 身份标签（daemon 默认 `daemon-client`；MCP `mcp:<client-info>`，缺失 clientInfo 时 `mcp:unknown`；oneshot `oneshot`；`--owner` 可自定义，见 [agent-identity.md](agent-identity.md)） |
 | `source` | string | ✓ | `daemon` / `mcp` / `oneshot` / `bench` |
 | `tool` | string | ✓* | `kind=tool_call` 必填 |
 | `risk` | string | ✓* | `read_only`/`reversible`/`bounded_write`/`external_commit`/`destructive_critical` |

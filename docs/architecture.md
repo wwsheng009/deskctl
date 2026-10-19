@@ -246,7 +246,7 @@ MCP 模式下：
 MCP 客户端启动
   -> 启动 deskctl mcp
   -> 连接 daemon
-  -> session/create（owner = MCP 连接）
+  -> session/create（owner = `mcp:<client-info>`，见 design/agent-identity.md）
   -> tools/list
   -> tools/call ...
   -> MCP 客户端退出 / stdin EOF

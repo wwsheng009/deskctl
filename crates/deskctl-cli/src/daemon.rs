@@ -168,7 +168,7 @@ async fn handle_request(request: Request, state: Arc<DaemonState>) -> Response {
                     "daemon".to_string(),
                     serde_json::json!({
                         "uptime_ms": state.engine.uptime_ms(),
-                        "session_count": state.engine.list_sessions().len(),
+                        "session_count": state.engine.list_sessions(None).len(),
                         "shutting_down": state.engine.shutdown_requested(),
                         "audit": {
                             "state": state.engine.audit().state(),
@@ -176,6 +176,11 @@ async fn handle_request(request: Request, state: Arc<DaemonState>) -> Response {
                             "dir": state.engine.config().audit.dir.display().to_string(),
                             "dropped": state.engine.audit().recorded_drops(),
                             "disabled_reason": state.engine.audit().disabled_reason(),
+                        },
+                        "owner_limits": {
+                            "max_sessions_per_owner": state.engine.config().owner_max_sessions,
+                            "fairness": state.engine.config().owner_fairness,
+                            "note": "owner is an attribution label, not an auth boundary",
                         }
                     }),
                 );
@@ -190,12 +195,22 @@ async fn handle_request(request: Request, state: Arc<DaemonState>) -> Response {
                 },
                 None => None,
             };
-            match state.engine.create_session(profile, "daemon-client") {
+            let owner = match request.params.get("owner").and_then(Value::as_str) {
+                Some(raw) => match deskctl_core::session::validate_owner(raw) {
+                    Ok(owner) => owner,
+                    Err(error) => return failure(id, error.to_string()),
+                },
+                None => "daemon-client".to_string(),
+            };
+            match state.engine.create_session(profile, owner) {
                 Ok(info) => Ok(serde_json::to_value(info).unwrap_or(Value::Null)),
                 Err(error) => return failure(id, error.to_string()),
             }
         }
-        "session/list" => Ok(Value::Array(state.engine.list_sessions())),
+        "session/list" => {
+            let owner = request.params.get("owner").and_then(Value::as_str);
+            Ok(Value::Array(state.engine.list_sessions(owner)))
+        }
         "session/inspect" => {
             let session_id = match required_string(&request.params, "session_id") {
                 Ok(value) => value,
