@@ -16,6 +16,13 @@
         "type": "boolean",
         "default": false,
         "description": "Run OCR only and skip YOLO icon detection"
+      },
+      "min_confidence": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1,
+        "default": 0.0,
+        "description": "Drop OCR/icons below this confidence"
       }
     },
     "required": [],

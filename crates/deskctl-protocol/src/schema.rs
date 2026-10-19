@@ -195,7 +195,8 @@ pub fn input_schema(name: ToolName) -> Value {
             json!({
                 "image_path": { "type": "string", "description": "Image file inside an allowed image root (OCR/vision input)" },
                 "capture_id": { "type": "string", "description": "Session capture (screenshot/crop) to read; bypasses the image-root policy" },
-                "text_only": { "type": "boolean", "default": false, "description": "Run OCR only and skip YOLO icon detection" }
+                "text_only": { "type": "boolean", "default": false, "description": "Run OCR only and skip YOLO icon detection" },
+                "min_confidence": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.0, "description": "Drop OCR/icons below this confidence" }
             }),
             &[],
         ),

@@ -10,6 +10,7 @@ use tracing;
 #[derive(Debug, Clone)]
 pub struct OcrBlock {
     pub text: String,
+    pub confidence: f32,
     pub x: i32,
     pub y: i32,
     pub w: i32,
@@ -246,7 +247,7 @@ impl PaddleOcr {
             );
             #[cfg(debug_assertions)]
             debug_probes::save_crop(&crop.to_image(), (cx1, cy1, cx2, cy2));
-            let text = self.recognize(crop.to_image())?;
+            let (text, _confidence) = self.recognize(crop.to_image())?;
             if !text.is_empty() {
                 results.push((box_coords.1, text));
             }
@@ -298,10 +299,11 @@ impl PaddleOcr {
             );
             #[cfg(debug_assertions)]
             debug_probes::save_crop(&crop.to_image(), (cx1, cy1, cx2, cy2));
-            let text = self.recognize(crop.to_image())?;
+            let (text, confidence) = self.recognize(crop.to_image())?;
             if !text.is_empty() {
                 results.push(OcrBlock {
                     text,
+                    confidence,
                     x: x1 as i32,
                     y: y1 as i32,
                     w: (x2.saturating_sub(x1)) as i32,
@@ -558,10 +560,10 @@ impl PaddleOcr {
     // ─── 识别阶段 ───────────────────────────────────────────
 
     /// 文本识别：对裁剪区域进行识别
-    fn recognize(&mut self, crop: image::RgbImage) -> Result<String, String> {
+    fn recognize(&mut self, crop: image::RgbImage) -> Result<(String, f32), String> {
         let (cw, ch) = (crop.width(), crop.height());
         if cw == 0 || ch == 0 {
-            return Ok(String::new());
+            return Ok((String::new(), 0.0));
         }
 
         let input = Self::preprocess_rec(&crop);
@@ -574,8 +576,7 @@ impl PaddleOcr {
             .run(ort::inputs!["x" => input_value])
             .map_err(|e| format!("识别推理失败: {e}"))?;
 
-        let text = Self::ctc_decode(&self.char_dict, &outputs)?;
-        Ok(text)
+        Self::ctc_decode(&self.char_dict, &outputs)
     }
 
     /// 识别预处理：resize → normalize → NCHW
@@ -619,7 +620,7 @@ impl PaddleOcr {
     fn ctc_decode(
         char_dict: &[String],
         outputs: &ort::session::SessionOutputs,
-    ) -> Result<String, String> {
+    ) -> Result<(String, f32), String> {
         let (shape, data) = outputs[0]
             .try_extract_tensor::<f32>()
             .map_err(|e| format!("提取识别输出失败: {e}"))?;
@@ -646,15 +647,19 @@ impl PaddleOcr {
 
         let mut prev = blank_id;
         let mut chars = Vec::new();
+        let mut confidence_sum = 0.0f32;
+        let mut confidence_count = 0usize;
         #[allow(unused_variables, unused_mut)]
         let mut debug_indices = Vec::new(); // debug: raw argmax
 
         for t in 0..seq_len {
             let mut max_val = f32::NEG_INFINITY;
             let mut max_idx = blank_id;
+            let mut val_sum = 0.0f32;
             let offset = t * num_classes;
             for c in 0..num_classes {
                 let val = data[offset + c];
+                val_sum += val;
                 if val > max_val {
                     max_val = val;
                     max_idx = c;
@@ -665,6 +670,29 @@ impl PaddleOcr {
             }
 
             if max_idx != blank_id && max_idx != prev {
+                // The rec model usually emits softmax probabilities, but some
+                // exports emit logits. Detect the former by checking whether
+                // each timestep sums to ~1; otherwise compute the softmax max.
+                let max_prob = if max_val.is_finite()
+                    && (0.0..=1.0).contains(&max_val)
+                    && val_sum > 0.0
+                    && (val_sum - 1.0).abs() < 0.05
+                {
+                    max_val
+                } else if max_val.is_finite() {
+                    let sum_exp: f32 = (0..num_classes)
+                        .map(|c| (data[offset + c] - max_val).exp())
+                        .sum();
+                    if sum_exp > 0.0 {
+                        1.0 / sum_exp
+                    } else {
+                        0.0
+                    }
+                } else {
+                    0.0
+                };
+                confidence_sum += max_prob;
+                confidence_count += 1;
                 if max_idx == space_id {
                     chars.push(" ".to_string());
                 } else if max_idx >= 1 && max_idx <= char_dict.len() {
@@ -676,6 +704,11 @@ impl PaddleOcr {
         }
 
         let result = chars.join("");
+        let confidence = if confidence_count > 0 {
+            (confidence_sum / confidence_count as f32).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
         #[cfg(debug_assertions)]
         {
             tracing::debug!(
@@ -685,7 +718,7 @@ impl PaddleOcr {
             tracing::debug!("[OCR DEBUG] result: {result}");
             debug_probes::save_rec_result(&result, &debug_indices);
         }
-        Ok(result)
+        Ok((result, confidence))
     }
 
     // ─── 工具函数 ───────────────────────────────────────────

@@ -93,7 +93,10 @@ crosses sessions.
 `call`, `tool`, and `doctor` accept `--output <file>` to write UTF-8 JSON
 directly (avoiding Windows console code-page conversion) and `--compact` for
 single-line output. `desktop_perceive text_only=true` skips YOLO icon detection
-and returns `raw_text` in reading order, plus `text_count` and `elapsed_ms`.
+and returns `raw_text` in reading order, `lines` grouped by visual row, plus
+`text_count`, `line_count`, `elapsed_ms`, and per-element confidence.
+`min_confidence` drops low-confidence OCR/icons; `cached=true` means the same
+image was served from the daemon's in-process OCR cache.
 `desktop_window_info` now reports `client_rect` (client-area screen coordinates
 and offset from the window), and `desktop_window_screenshot` accepts a `region`
 crop relative to the captured image.

@@ -1721,25 +1721,49 @@ fn perceive(engine: &Engine, session: &Session, args: &Value) -> Result<ToolExec
         .get("text_only")
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    let min_confidence = args
+        .get("min_confidence")
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0);
+    if !(0.0..=1.0).contains(&min_confidence) {
+        return Err(invalid("min_confidence must be between 0 and 1"));
+    }
     let (path, capture_id, screen_rect, image) = load_tool_image(engine, session, args)?;
     let started = Instant::now();
-    let mut elements = if text_only {
-        engine.vision().perceive_text(&image, screen_rect)?
+    let (mut elements, cached) = if text_only {
+        engine.vision().perceive_text_cached(&image, screen_rect)?
     } else {
-        engine.vision().perceive(&image, screen_rect)?
+        engine.vision().perceive_cached(&image, screen_rect)?
     };
     let elapsed_ms = started.elapsed().as_millis() as u64;
-    let text_count = elements
-        .iter()
-        .filter(|element| element.kind == "text" && !element.text.is_empty())
-        .count();
-    let raw_text = read_order_text(&elements);
+    elements.retain(|element| f64::from(element.confidence) >= min_confidence);
     elements.sort_by(|left, right| {
         left.rect
             .y
             .cmp(&right.rect.y)
             .then(left.rect.x.cmp(&right.rect.x))
     });
+    let text_count = elements
+        .iter()
+        .filter(|element| element.kind == "text" && !element.text.is_empty())
+        .count();
+    let lines = group_text_lines(&elements);
+    let raw_text = lines
+        .iter()
+        .map(|line| line.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let line_values = lines
+        .iter()
+        .map(|line| {
+            json!({
+                "text": crate::untrusted::wrap(&line.text),
+                "rect": line.rect,
+                "element_count": line.element_count
+            })
+        })
+        .collect::<Vec<_>>();
+    let line_count = line_values.len();
     let mut locations = std::collections::BTreeMap::new();
     let mut public = Vec::with_capacity(elements.len());
     for (index, element) in elements.into_iter().enumerate() {
@@ -1785,8 +1809,12 @@ fn perceive(engine: &Engine, session: &Session, args: &Value) -> Result<ToolExec
         "image_path": path.display().to_string(),
         "elements": public,
         "text_only": text_only,
+        "min_confidence": min_confidence,
         "text_count": text_count,
         "raw_text": crate::untrusted::wrap(&raw_text),
+        "lines": line_values,
+        "line_count": line_count,
+        "cached": cached,
         "elapsed_ms": elapsed_ms,
         "image_width": image.width(),
         "image_height": image.height(),
@@ -1794,15 +1822,102 @@ fn perceive(engine: &Engine, session: &Session, args: &Value) -> Result<ToolExec
     })))
 }
 
-/// Join OCR text in the already sorted reading order (top-to-bottom,
-/// left-to-right) and omit icon elements.
-fn read_order_text(elements: &[crate::vision::VisionElement]) -> String {
-    elements
+#[derive(Debug)]
+struct TextLine {
+    text: String,
+    rect: ScreenRect,
+    element_count: usize,
+}
+
+/// Group OCR blocks that share a visual row into one line, then sort the lines
+/// top-to-bottom and the blocks inside each line left-to-right.
+fn group_text_lines(elements: &[crate::vision::VisionElement]) -> Vec<TextLine> {
+    let mut text: Vec<&crate::vision::VisionElement> = elements
         .iter()
         .filter(|element| element.kind == "text" && !element.text.is_empty())
-        .map(|element| element.text.as_str())
-        .collect::<Vec<_>>()
-        .join("\n")
+        .collect();
+    text.sort_by(|left, right| {
+        left.rect
+            .y
+            .cmp(&right.rect.y)
+            .then(left.rect.x.cmp(&right.rect.x))
+    });
+
+    let mut groups: Vec<Vec<&crate::vision::VisionElement>> = Vec::new();
+    for element in text {
+        let mut placed = false;
+        if let Some(group) = groups.last_mut() {
+            if same_text_row(group[0], element) {
+                group.push(element);
+                placed = true;
+            }
+        }
+        if !placed {
+            groups.push(vec![element]);
+        }
+    }
+
+    groups
+        .into_iter()
+        .map(|mut group| {
+            group.sort_by(|left, right| {
+                left.rect
+                    .x
+                    .cmp(&right.rect.x)
+                    .then(left.rect.y.cmp(&right.rect.y))
+            });
+            let text = group
+                .iter()
+                .map(|item| item.text.as_str())
+                .collect::<Vec<_>>()
+                .join(" ");
+            let x = group.iter().map(|item| item.rect.x).min().unwrap_or(0);
+            let y = group.iter().map(|item| item.rect.y).min().unwrap_or(0);
+            let right = group
+                .iter()
+                .map(|item| item.rect.x + item.rect.width as i32)
+                .max()
+                .unwrap_or(x);
+            let bottom = group
+                .iter()
+                .map(|item| item.rect.y + item.rect.height as i32)
+                .max()
+                .unwrap_or(y);
+            TextLine {
+                text,
+                rect: ScreenRect {
+                    x,
+                    y,
+                    width: (right - x).max(0) as u32,
+                    height: (bottom - y).max(0) as u32,
+                },
+                element_count: group.len(),
+            }
+        })
+        .collect()
+}
+
+/// Compare a block with the line anchor: prefer vertical overlap (robust when
+/// one block is tall), with a small center-distance fallback. Anchoring on the
+/// first block prevents a tall element from expanding the tolerance and
+/// absorbing the next visual row.
+fn same_text_row(
+    anchor: &crate::vision::VisionElement,
+    element: &crate::vision::VisionElement,
+) -> bool {
+    let anchor_top = anchor.rect.y;
+    let anchor_bottom = anchor_top + anchor.rect.height as i32;
+    let element_top = element.rect.y;
+    let element_bottom = element_top + element.rect.height as i32;
+    let overlap = (anchor_bottom.min(element_bottom) - anchor_top.max(element_top)).max(0);
+    let min_height = (anchor.rect.height.min(element.rect.height) as i32).max(1);
+    if overlap as f32 / min_height as f32 >= 0.5 {
+        return true;
+    }
+    let anchor_center = anchor_top + anchor.rect.height as i32 / 2;
+    let element_center = element_top + element.rect.height as i32 / 2;
+    let tolerance = (anchor.rect.height.min(element.rect.height) as f32 * 0.5).max(4.0);
+    (anchor_center - element_center).abs() as f32 <= tolerance
 }
 
 /// 把图像上的 OCR 文本按"标签 → 数值"配对（同行右侧优先，其次正下方），
@@ -3117,7 +3232,7 @@ mod tests {
     }
 
     #[test]
-    fn read_order_text_skips_icons_and_joins_text() {
+    fn group_text_lines_groups_rows_and_skips_icons() {
         let elements = vec![
             crate::vision::VisionElement {
                 kind: "text".to_string(),
@@ -3125,6 +3240,18 @@ mod tests {
                 rect: ScreenRect {
                     x: 0,
                     y: 0,
+                    width: 10,
+                    height: 10,
+                },
+                confidence: 0.9,
+                screen_center: None,
+            },
+            crate::vision::VisionElement {
+                kind: "text".to_string(),
+                text: "同行".to_string(),
+                rect: ScreenRect {
+                    x: 20,
+                    y: 1,
                     width: 10,
                     height: 10,
                 },
@@ -3156,7 +3283,58 @@ mod tests {
                 screen_center: None,
             },
         ];
-        assert_eq!(read_order_text(&elements), "第一行\n第二行");
+        let lines = group_text_lines(&elements);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].text, "第一行 同行");
+        assert_eq!(lines[0].element_count, 2);
+        assert_eq!(lines[1].text, "第二行");
+        assert_eq!(lines[1].element_count, 1);
+    }
+
+    #[test]
+    fn group_text_lines_keeps_next_row_after_a_tall_block() {
+        let elements = vec![
+            crate::vision::VisionElement {
+                kind: "text".to_string(),
+                text: "A".to_string(),
+                rect: ScreenRect {
+                    x: 0,
+                    y: 0,
+                    width: 10,
+                    height: 10,
+                },
+                confidence: 0.9,
+                screen_center: None,
+            },
+            crate::vision::VisionElement {
+                kind: "text".to_string(),
+                text: "B".to_string(),
+                rect: ScreenRect {
+                    x: 20,
+                    y: 0,
+                    width: 10,
+                    height: 30,
+                },
+                confidence: 0.9,
+                screen_center: None,
+            },
+            crate::vision::VisionElement {
+                kind: "text".to_string(),
+                text: "C".to_string(),
+                rect: ScreenRect {
+                    x: 0,
+                    y: 20,
+                    width: 10,
+                    height: 10,
+                },
+                confidence: 0.9,
+                screen_center: None,
+            },
+        ];
+        let lines = group_text_lines(&elements);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].text, "A B");
+        assert_eq!(lines[1].text, "C");
     }
 
     #[test]
