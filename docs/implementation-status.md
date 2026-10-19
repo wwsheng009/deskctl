@@ -20,7 +20,7 @@
 | I1 输入模拟增强 | 完成（待真机回归） | `desktop_mouse` 新增 `move_relative`/`down`/`up` 与 `hold_ms`/`jitter_px`，`desktop_mouse_drag` 支持 `path`/`speed`/`humanize`，`desktop_input` 新增 `key`/`key_down`/`key_up`（名字/VK/扫描码、长按与重复）与拟人打字；PCG32 轨迹/节奏采样（`humanize` 默认 off，seed 可复现）；工具数保持 36；单测覆盖轨迹/键码/限额；真机回归清单见 test-plan §7.2 |
 | D1 审计与历史 | 完成 | daemon/oneshot/MCP 全链路审计（JSONL v1：basic/full、文本 digest、键名单脱敏、轮转/保留/总量清理、写失败降级 disabled）；`deskctl history`（session/owner/tool/run/since/until/failed-only/kind/limit/json/summary/dir）；协议与工具数不变；契约测试 7 + 单测 15；开销 A/B p95 ≤0.5%（见 performance-baseline §5） |
 | D2 Agent 身份 | 完成 | `session create --owner`（小写规范化、`[a-zA-Z0-9._:@-]`、1..64、保留名拒绝）；MCP `clientInfo.name`→`mcp:<name>`（缺失 `mcp:unknown`）；`session list --owner` 精确过滤；`DESKCTL_OWNER_MAX_SESSIONS` per-owner 限额（超限 `resource_busy`）且不影响其他 owner；审计归因与 `history --owner`（`prefix*` 通配）/`by_owner`（p50/p95）；`doctor.owner_limits`；协议与工具数不变；契约测试 4 + 单测 3 |
-| D3 录制与回放 | 完成（E2E-012 真机 SAP 流程待回归） | `desktop_recorder_start/stop`（会话内单录制器、include_reads、max_steps/256KiB 上限、`allow_relaunch` 覆盖）、`desktop_script_run`（解析/静态校验/preflight/dry-run/逐步执行/重试/重绑/核验/run report/outcome/handoff）、`desktop_file_hash`（readback 强核验）；目标描述+指纹解析（strict/balanced/loose、歧义/指纹不符/stale 分码、`launch_ref` 受限重启、5 次重绑预算）；审计 `run_id` + `history --run`；CLI `record start/stop --out`、`script validate|run`；工具数 36 → 40（standard 34 → 38）；契约测试 3 + 单测 19 |
+| D3 录制与回放 | 完成（E2E-012 真机 SAP ST06 流程已回归 2026-10-19） | `desktop_recorder_start/stop`（会话内单录制器、include_reads、max_steps/256KiB 上限、`allow_relaunch` 覆盖）、`desktop_script_run`（解析/静态校验/preflight/dry-run/逐步执行/重试/重绑/核验/run report/outcome/handoff）、`desktop_file_hash`（readback 强核验）；目标描述+指纹解析（strict/balanced/loose、歧义/指纹不符/stale 分码、`launch_ref` 受限重启、5 次重绑预算）；审计 `run_id` + `history --run`；CLI `record start/stop --out`、`script validate|run`；工具数 36 → 40（standard 34 → 38）；契约测试 3 + 单测 20；真机记录见 [test-plan.md](test-plan.md) §8 E2E-012 回归记录 |
 | D4 检查点与补偿 | 完成（`rect`/`value` 差异路径已真机回归 2026-10-19；`checked`/`exists` 由单测与契约测试覆盖） | `desktop_checkpoint_save/verify`（会话内存、单会话 8 个同名覆盖、命名 `[a-z0-9._-]{1,32}`、导出/读取 `deskctl-checkpoint/1` 共用允许根策略）；四类差异 `value`/`checked`/`exists`/`rect`（`values_only` 跳过矩形，窗口消失记 `missing`）；`script_run` 的 `checkpoint`（运行前保存 + 收尾校验进 report）与 `compensation`（默认 dry-run 计划，`apply`/`--apply-compensation` 才执行，固定 `bounded_write` + `on_error=stop`、不做二级补偿）；`purpose=compensation` 默认 dry-run；CLI `script run --checkpoint/--compensation/--apply-compensation`；工具数 40 → 42（standard 38 → 40）；顺带修复允许根策略对"尚不存在文件"的误拒（Windows `canonicalize` verbatim 前缀）；契约测试 4 + 单测 5；真机记录见 [test-plan.md](test-plan.md) §8 E2E-013 回归记录 |
 | S1 屏幕文本注入防御 | 完成 | `perceive`/`read_kv`/`find_text` 的 OCR 文本与 `history --json` 记录的 `error.message`/`error.details` 字符串以 `<untrusted-screen-content>…</untrusted-screen-content>` 包裹并声明"数据非指令"；`DESKCTL_UNTRUSTED_WRAP=off`（或 `0`/`false`/`no`/`disabled`）关闭，默认开启；工具描述同步声明；未包裹面见 known-limitations；单测 3 + 契约测试 2 |
 
@@ -144,6 +144,12 @@
   `handoff` 含 `run_id/failed_step/reason/effect_may_have_occurred/safe_to_retry/resume_hint/
   suggested_actions`；`RECONCILIATION_REQUIRED` 后 `--from` 默认拒绝，需
   `allow_resume_after_unknown=true`；同会话并发 run 返回 `resource_busy` + 当前 `run_id`
+- D3 真机回归（E2E-012，2026-10-19）：SAP ST06 录制 8 步 → `script validate` 通过 →
+  dry-run 8/8 `decision=execute` → 真跑 `run-e3ade973` 8/8 `VERIFIED`（readback_verified=1）；
+  故意 `not_sent` 失败 `run-7d6763d1`（`handoff.resume_hint.from_step=s6`）经 `--param` 修正后
+  `run-0f80e19e --from s6` 续跑 3/3 `VERIFIED`；关闭 SAP 后重跑 `run-d8568094` 触发
+  `relaunched=true` 且 3/3 ok（未声明 readback → `COMPLETED_UNVERIFIED`，符合 test-plan 规则）。
+  屏幕断言用"专家视图"（"操作系统监控器"非稳定 UIA/屏幕文本；readback 层仍断言后者）
 - D4 检查点（AC-TXN-001/002）：`desktop_checkpoint_save` 采样目标窗口矩形/key 值/capture
   并存入会话（第 9 个新名字 `resource_busy`，同名可覆盖；非法名字 `invalid_params`），
   可导出为 `deskctl-checkpoint/1` 文件并原样读回校验；`desktop_checkpoint_verify` 支持
@@ -168,9 +174,9 @@
 
 ```text
 deskctl-cli:      36 passed（agent_identity 4、audit_history 7、checkpoint_contract 4、cli_contract 3、mcp_smoke 4、script_contract 3、skills_contract 1、tool_contract 6、untrusted_wrap 2、main 单测 2）
-deskctl-core:    107 passed（lib 101、path_policy 2、session_isolation 4）
+deskctl-core:    108 passed（lib 102、path_policy 2、session_isolation 4）
 deskctl-protocol:  3 passed
-合计:            146 passed, 0 failed
+合计:            147 passed, 0 failed
 ```
 
 `cargo fmt --all -- --check` 与 `cargo clippy --workspace --all-targets -- -D warnings` 均无告警
@@ -215,7 +221,7 @@ deskctl-protocol:  3 passed
   `expect` 断言、`risk_max` 默认值与 `external_commit` 显式放行、静态校验（未知工具/风险/引用）、
   outcome 分类与 handoff 推导（script 单测 10）
 - D3 录制器：`include_reads` 过滤、重复 start 拒绝、`max_steps` 截断、回放步骤不二次录制、
-  坐标/capture 标记、`not_sent` 转 `optional`、脚本形状（recorder 单测 9）
+  坐标/capture 标记、`not_sent` 转 `optional`、脚本形状（recorder 单测 10）
 - D3 契约：录制 → 导出 → `script validate` → `script run --dry-run` → 真跑（`run_id` 审计分步）→
   同会话并发 `resource_busy`；预检拒绝（未知工具/风险超限/未解析变量）；`not_sent` 失败 handoff 与
   `--from` 续跑；`file_sha256` readback 通过/失败与续跑门禁（script_contract 3）

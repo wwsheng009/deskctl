@@ -639,7 +639,9 @@ scripts/package-models.ps1
   run report + outcome + handoff）、只读 `desktop_file_hash`；目标描述+指纹（strict/balanced/loose）
   与 `launch_ref` 受限重启；审计 `run_id` 与 `history --run`；CLI `record start|stop --out`、
   `script validate|run`；工具数 36 → 40（见 [design/record-replay.md](design/record-replay.md)、
-  [implementation-status.md](implementation-status.md)）。
+  [implementation-status.md](implementation-status.md)）；真机 E2E-012 已回归（2026-10-19，
+  SAP ST06 录制→回放 8 步 `VERIFIED`、`--from` 续跑与 `relaunched` 重跑均通过，
+  见 [test-plan.md](test-plan.md) §8 E2E-012 回归记录）。
 - D4 检查点与补偿已实施（2026-10-19）：`desktop_checkpoint_save/verify`（会话内 8 个上限、
   同名覆盖、四类差异 `value`/`checked`/`exists`/`rect`、导出 `deskctl-checkpoint/1` 并复用
   允许根策略）、`desktop_script_run` 的 `checkpoint`（运行前保存 + 收尾校验进 report）与

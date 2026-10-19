@@ -348,7 +348,8 @@ Windows 首个可用版本必须同时满足：
 >
 > 进度：D1（审计与历史）已于 2026-10-19 实现并通过验证（见 §15.1）；D2（Agent 身份）已于 2026-10-19
 > 实现并通过验证（见 §15.2）；D3（录制与回放）已于 2026-10-19 实现并通过验证（见 §15.3，真机
-> SAP ST06 E2E-012 待回归）；D4（检查点与补偿）已于 2026-10-19 实现并通过验证（见 §15.4，
+> SAP ST06 E2E-012 已回归 2026-10-19，见 test-plan.md §8）；D4（检查点与补偿）已于 2026-10-19
+> 实现并通过验证（见 §15.4，
 > `rect`/`value` 差异路径已真机回归、`checked`/`exists` 由单测与契约测试覆盖，见 test-plan.md §8
 > E2E-013 回归记录）；I1（输入模拟增强）已于 2026-10-19 实施（见 §15.6）；
 > AC-SEC-013（§15.5）已于 2026-10-19 实施并通过验证。
@@ -393,8 +394,8 @@ Windows 首个可用版本必须同时满足：
 > §1 的 D3 行与 §2 已验证能力；判据测试在 `crates/deskctl-cli/tests/script_contract.rs`（录制→导出→
 > 校验→dry-run→真跑、并发 `resource_busy`、handoff/续跑、readback 门禁）与 `crates/deskctl-core/src/`
 > 的 recorder/script 单测；CLI 为 `deskctl record start|stop`、`deskctl script validate|run`。
-> 有意未实现：AC-RPL-010..012（L2/L3 脚本引擎）仍为规划中；真机 E2E-012 见
-> [test-plan.md](test-plan.md) §8。
+> 有意未实现：AC-RPL-010..012（L2/L3 脚本引擎）仍为规划中；真机 E2E-012 已回归（2026-10-19），
+> 见 [test-plan.md](test-plan.md) §8 E2E-012 回归记录。
 
 | 编号 | 验收项 | 通过标准 |
 |---|---|---|

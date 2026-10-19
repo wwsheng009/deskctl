@@ -463,6 +463,33 @@ description+fingerprint 且步骤内不出现裸 hwnd；dry-run 每步 `decision
 关闭 SAP 窗口后重跑触发 `relaunched=true` 并成功；故意让某步 `not_sent` 失败时，
 `handoff.resume_hint.from_step` 指向失败步，修正 `--param` 后 `--from` 续跑成功。
 
+回归记录（2026-10-19，真机 Windows 11 / daemon 会话；SAP S/4HANA ST06）：
+
+```text
+录制：desktop_recorder_start {include_reads:"essential"} → SAP ST06 巡检（target_bind {hwnd}
+  → window_activate → semantic_action focus → input /nST06 → wait_for stable
+  → window_screenshot → read_kv → docx_save 巡检报告）→ recorder_stop → 8 步脚本
+脚本：targets.saplogon 含 match（process_name/class_name/title_contains）+ fingerprint
+  （pid/class_name/title）；strictness=loose（SAP 标题尾部漂移 " S4H (1)"，避免误判
+  identity_mismatch）；步骤内 hwnd/app_id 全部为 $target.saplogon.hwnd/.token，无裸 hwnd
+手工补 verify：s6 screen text_present="专家视图"（"操作系统监控器"在 UIA/屏幕文本中不可
+  稳定命中，改用同屏可见的专家视图；readback 层仍断言报告文本"操作系统监控器"）、
+  s8 readback docx_contains="操作系统监控器"
+validate：ok（issues=0）；dry-run：8/8 decision=execute（不派发、屏幕状态不变）
+真跑 run-e3ade973：8/8 ok、outcome=VERIFIED、readback_verified=1（约 45.7s）
+故意失败 run-7d6763d1（--param shot_path=Z:\nope\shot.png）：s6 not_sent（error.code=internal），
+  handoff.failed_step=s6、resume_hint.from_step=s6、effect_may_have_occurred=false、safe_to_retry=true
+续跑 run-0f80e19e（--from s6 --param shot_path=…st06-report-resume.png）：3/3 ok、outcome=VERIFIED
+关窗重跑（关闭 SAP 会话窗口后）：run-d8568094 触发 relaunched=true（重绑新 pid/hwnd 成功），
+  3/3 ok、屏幕核验 satisfied；未声明 readback → COMPLETED_UNVERIFIED（符合本节规则）
+步骤数比对：录制 8 步，与 E2E-011 手工流程相当；差异为新增 window_activate 与 docx 报告
+  落盘/readback，手工流程的 perceive 元素检查与越界负例未纳入回放脚本（已附注原因）
+```
+
+结论：E2E-012 全部通过标准达成；证据为录制会话的 `%TEMP%\e2e12-*.json|png|docx`
+（plan.dscript.json / plan.edited.dscript.json / dryrun2 / run2 / run-fail / run-resume /
+relaunch-run2）。
+
 ### E2E-013 检查点 → 变更 → 补偿（D4，可选真机项）
 
 ```text
