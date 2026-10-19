@@ -1,0 +1,4 @@
+interface:
+  display_name: "Desktop Recovery"
+  short_description: "Recover failed or ambiguous desktop actions"
+  default_prompt: "Use $desktop-recovery after a failed desktop action before retrying."

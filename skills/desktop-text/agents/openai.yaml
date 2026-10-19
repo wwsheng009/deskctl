@@ -1,0 +1,4 @@
+interface:
+  display_name: "Desktop Text"
+  short_description: "Type text, send hotkeys, handle the clipboard"
+  default_prompt: "Use $desktop-text to type into the focused window."

@@ -1,3 +1,8 @@
+---
+name: desktop-recovery
+description: "Recovery and safety playbook for deskctl desktop automation after a failed, expired, or ambiguous action. Use before retrying anything when a tool returns stale_capture, stale_observation, target_unavailable, resource_busy, dispatch_unknown, dispatch_state=sent/partial/unknown, or model_unavailable. Re-screenshot and re-perceive stale captures, re-bind stale targets, back off on resource_busy, and observe the UI after unknown dispatch; never replay a click or keystroke, reuse stale candidate IDs, or guess coordinates. Use together with desktop-basic, desktop-window, desktop-text, or desktop-semantic; this is not a first-step control skill. Deskctl has no approval flow, so stop and ask the user when the intended outcome is unclear."
+---
+
 # Desktop Recovery
 
 Use when a desktop action fails, expires or becomes ambiguous.

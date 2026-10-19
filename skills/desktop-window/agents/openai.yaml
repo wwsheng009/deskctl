@@ -1,0 +1,4 @@
+interface:
+  display_name: "Desktop Window"
+  short_description: "Find, focus, move, resize and capture windows"
+  default_prompt: "Use $desktop-window to find and focus the target window."

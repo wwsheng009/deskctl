@@ -1,0 +1,4 @@
+interface:
+  display_name: "Desktop Semantic"
+  short_description: "Bind UIA targets, observe, execute and verify"
+  default_prompt: "Use $desktop-semantic to bind a window and execute a semantic action."

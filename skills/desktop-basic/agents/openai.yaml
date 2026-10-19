@@ -1,0 +1,4 @@
+interface:
+  display_name: "Desktop Basic"
+  short_description: "Screenshots, windows, mouse and keyboard basics"
+  default_prompt: "Use $desktop-basic to take a screenshot and click the target window."

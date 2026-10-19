@@ -3,7 +3,7 @@
     "windows"
   ],
   "entry_prompt": "SKILL.md",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Windows UIA 目标绑定、观察、执行和验证",
   "requires": [
     "session"

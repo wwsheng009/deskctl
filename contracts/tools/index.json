@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1.0",
-  "profile": "full",
-  "count": 42,
+  "profile": "standard",
+  "count": 40,
   "tools": [
     {
       "name": "desktop_mouse",
@@ -76,10 +76,6 @@
       "file": "desktop_pptx_save.json"
     },
     {
-      "name": "desktop_vision",
-      "file": "desktop_vision.json"
-    },
-    {
       "name": "desktop_perceive",
       "file": "desktop_perceive.json"
     },
@@ -142,10 +138,6 @@
     {
       "name": "desktop_verify_state",
       "file": "desktop_verify_state.json"
-    },
-    {
-      "name": "desktop_agent_step",
-      "file": "desktop_agent_step.json"
     },
     {
       "name": "desktop_recorder_start",

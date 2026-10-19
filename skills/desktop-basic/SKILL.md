@@ -1,3 +1,8 @@
+---
+name: desktop-basic
+description: "Windows desktop control with deskctl for screenshot-driven automation. Use when an agent must observe the screen or interact without a stable UI Automation target: capture the full screen, a region, or a window; list and activate windows; locate OCR/YOLO elements with desktop_perceive; click via capture_id + element_id; type text; or wait for a visual change. Available on the minimal and standard profiles; minimal lacks desktop_perceive, desktop_window_info, and desktop_wait_for, so locate targets from a fresh screenshot and use raw coordinates. Re-observe after every action, never reuse stale element IDs, and verify the business result rather than trusting dispatch_state=sent. Prefer desktop-semantic for stable UIA targets, desktop-window for window-only work, and desktop-text for text or clipboard-only work. Deskctl has no approval flow; act only when the task intent is clear."
+---
+
 # Desktop Basic
 
 Use for basic screenshot, window, mouse and keyboard work.
@@ -18,3 +23,4 @@ Use for basic screenshot, window, mouse and keyboard work.
 - Do not persist `hwnd` across sessions; list windows again.
 - `dispatch_state=sent` does not mean the business goal succeeded.
 - There is no approval flow; only act when the task intent is clear.
+- `desktop_perceive`, `desktop_window_info` and `desktop_wait_for` are standard-profile tools; on `minimal`, locate targets from a fresh screenshot and use raw coordinates.

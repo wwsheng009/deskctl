@@ -3,7 +3,7 @@
     "windows"
   ],
   "entry_prompt": "SKILL.md",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "过期 token、窗口变化和 dispatch unknown 的恢复",
   "requires": [
     "session"

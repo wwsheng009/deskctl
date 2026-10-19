@@ -3,7 +3,7 @@
     "windows"
   ],
   "entry_prompt": "SKILL.md",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "窗口枚举、激活、移动、缩放和信息读取",
   "requires": [
     "session"
