@@ -1,3 +1,4 @@
+mod batch;
 mod bench;
 mod client;
 mod daemon;
@@ -56,6 +57,9 @@ enum Commands {
         token_file: Option<PathBuf>,
         #[arg(long, default_value_t = 8)]
         max_sessions: usize,
+        /// Preload OCR/YOLO models before accepting requests.
+        #[arg(long)]
+        warmup: bool,
     },
     /// Call a tool on an existing daemon session.
     Call {
@@ -82,6 +86,31 @@ enum Commands {
         /// Emit compact JSON (default: pretty).
         #[arg(long)]
         compact: bool,
+    },
+    /// Run a JSONL batch of tool calls in one daemon session.
+    Batch {
+        /// JSONL file; each line is {"tool":"...","arguments":{...}}.
+        #[arg(long)]
+        file: PathBuf,
+        #[arg(long)]
+        session: String,
+        #[arg(long)]
+        session_token: Option<String>,
+        #[arg(long)]
+        session_token_file: Option<PathBuf>,
+        #[arg(long)]
+        socket: Option<String>,
+        #[arg(long)]
+        token_file: Option<PathBuf>,
+        /// Directory for per-item JSON results.
+        #[arg(long)]
+        output_dir: PathBuf,
+        /// Emit compact per-item JSON files.
+        #[arg(long)]
+        compact: bool,
+        /// Stop after the first failed item.
+        #[arg(long)]
+        stop_on_error: bool,
     },
     /// Manage daemon sessions.
     Session {
@@ -399,6 +428,7 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
             socket,
             token_file,
             max_sessions,
+            warmup,
         } => {
             let socket = socket.unwrap_or_else(config::default_socket_name);
             let token_file = token_file.unwrap_or_else(config::token_path);
@@ -406,6 +436,16 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
             config.max_sessions = max_sessions.max(1);
             let idle_instances = config.max_sessions + 2;
             let engine = Engine::new(config);
+            if warmup {
+                let started = std::time::Instant::now();
+                match engine.vision().warmup() {
+                    Ok(()) => eprintln!(
+                        "deskctl: vision warmup completed in {} ms",
+                        started.elapsed().as_millis()
+                    ),
+                    Err(error) => eprintln!("deskctl: vision warmup skipped: {error}"),
+                }
+            }
             daemon::run(socket, token_file, engine, idle_instances).await?;
             Ok(0)
         }
@@ -439,6 +479,30 @@ async fn run(command: Commands, profile: ToolProfile) -> Result<i32, String> {
             .await?;
             output::print_json_with_options(&result, compact, output.as_deref())?;
             Ok(exit_code_for(&result))
+        }
+        Commands::Batch {
+            file,
+            session,
+            session_token,
+            session_token_file,
+            socket,
+            token_file,
+            output_dir,
+            compact,
+            stop_on_error,
+        } => {
+            let session_token = resolve_session_token(session_token, session_token_file)?;
+            batch::run(batch::BatchOptions {
+                file,
+                session,
+                session_token,
+                socket: socket.unwrap_or_else(config::default_socket_name),
+                token_file: token_file.unwrap_or_else(config::token_path),
+                output_dir,
+                compact,
+                stop_on_error,
+            })
+            .await
         }
         Commands::Session { command } => {
             let (method, params, socket, token_file, token_out) = match command {

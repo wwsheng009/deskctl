@@ -44,6 +44,14 @@ impl VisionEngine {
         }
     }
 
+    /// Load OCR/YOLO models and run one tiny inference before the daemon starts
+    /// accepting requests. This moves the one-time model-load cost out of the
+    /// first user call.
+    pub fn warmup(&self) -> Result<(), ToolError> {
+        let image = image::RgbaImage::from_pixel(64, 64, image::Rgba([255, 255, 255, 255]));
+        self.perceive(&image, None).map(|_| ())
+    }
+
     /// Cached entry point for `desktop_perceive`; returns whether the result
     /// came from the in-process cache.
     pub fn perceive_cached(

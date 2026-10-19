@@ -71,7 +71,7 @@ unsupported, `7` policy/authentication denial.
 ## Daemon and sessions
 
 ```powershell
-deskctl serve
+deskctl serve --warmup
 deskctl session create --token-out .\session.token
 deskctl session list
 deskctl call <session_id> desktop_screenshot --session-token-file .\session.token --json '{}' --output shot.json
@@ -82,6 +82,10 @@ deskctl session inspect <session_id>
 deskctl session close <session_id>
 deskctl shutdown
 ```
+
+`serve --warmup` preloads OCR/YOLO models before the pipe starts listening;
+startup takes longer, but the first `desktop_perceive` avoids the one-time
+model-load latency.
 
 The daemon listens only on the local named pipe `\\.\pipe\deskctl` by default.
 Every request requires the access token from the token file. `session create
@@ -100,6 +104,21 @@ image was served from the daemon's in-process OCR cache.
 `desktop_window_info` now reports `client_rect` (client-area screen coordinates
 and offset from the window), and `desktop_window_screenshot` accepts a `region`
 crop relative to the captured image.
+
+For a sequence of calls, write one JSON object per line and run it in one
+process:
+
+```powershell
+@'
+{"tool":"desktop_perceive","arguments":{"image_path":"C:/temp/a.png","text_only":true}}
+{"tool":"desktop_perceive","arguments":{"image_path":"C:/temp/b.png","text_only":true}}
+'@ | Set-Content -Encoding utf8 .\batch.jsonl
+deskctl batch --file .\batch.jsonl --session <session_id> --session-token-file .\session.token --output-dir .\ocr
+```
+
+Batch calls run sequentially (the daemon's Vision gate is serialized), print
+one JSON summary line per request, and write one result file per request.
+Add `--stop-on-error` to stop after the first failure.
 
 ## MCP
 

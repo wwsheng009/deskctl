@@ -253,6 +253,64 @@ fn session_token_file_round_trips_and_calls_tool() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+/// Batch mode reuses one session for multiple JSONL requests and writes one
+/// result file per request.
+#[test]
+fn batch_runs_jsonl_requests_and_writes_results() {
+    let root = temp_dir("batch");
+    let (mut daemon, common) = start_daemon(&root, "batch", &[]);
+    let envs: &[(&str, &str)] = &[];
+    let created = create_session(&common, envs, None);
+    assert!(
+        created.status.success(),
+        "create: {}",
+        stderr_text(&created)
+    );
+    let info = stdout_json(&created);
+    let session_id = info["session_id"].as_str().expect("session_id");
+    let token = info["session_token"].as_str().expect("session_token");
+
+    let batch_file = root.join("batch.jsonl");
+    std::fs::write(
+        &batch_file,
+        "{\"tool\":\"desktop_screen_size\",\"arguments\":{}}\n\
+         {\"tool\":\"desktop_screen_size\",\"arguments\":{}}\n",
+    )
+    .expect("write batch file");
+    let output_dir = root.join("batch-out");
+    let batch = deskctl_with_socket(
+        &[
+            "batch",
+            "--file",
+            batch_file.to_str().expect("utf-8 batch path"),
+            "--session",
+            session_id,
+            "--session-token",
+            token,
+            "--output-dir",
+            output_dir.to_str().expect("utf-8 output dir"),
+        ],
+        &common,
+        envs,
+    );
+    assert!(batch.status.success(), "batch: {}", stderr_text(&batch));
+    let lines = stdout_json_lines(&batch);
+    assert_eq!(lines.len(), 2);
+    assert!(lines.iter().all(|line| line["ok"] == true));
+    let files = std::fs::read_dir(&output_dir)
+        .expect("read output dir")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("read output entries");
+    assert_eq!(files.len(), 2);
+    let first: Value =
+        serde_json::from_str(&std::fs::read_to_string(files[0].path()).expect("read batch result"))
+            .expect("batch result json");
+    assert_eq!(first["ok"], true);
+
+    stop_daemon(&mut daemon, &common, envs);
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// AC-AGT-004: the per-owner session cap only bites the owner that reaches it.
 #[test]
 fn owner_session_limit_is_per_owner() {
