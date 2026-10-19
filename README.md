@@ -68,6 +68,10 @@ Exit codes: `0` success, `1` internal/tool failure, `2` invalid parameters or
 unknown tool, `4` stale state/restart, `5` resource busy, `6` platform
 unsupported, `7` policy/authentication denial.
 
+For read-only tools, `meta.effect` is `read` and `meta.dispatch_state` is
+`not_sent`; the latter means no input was dispatched, not that the call failed.
+Keep token files in a user-only directory; deskctl does not rewrite their ACLs.
+
 ## Daemon and sessions
 
 ```powershell
