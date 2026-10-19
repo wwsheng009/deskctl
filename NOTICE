@@ -6,6 +6,7 @@ This product includes software developed by the Nuphus project
 
 Bundled model/runtime assets, when present:
 - PaddleOCR / RapidOCR models: see models/hashes.json and third-party notices.
-- OmniParser icon detection model: see models/hashes.json.
+- OmniParser icon detection model (YOLO-derived detector, redistributed as the
+  onnx-community ONNX export under MIT): see models/hashes.json.
 - Microsoft ONNX Runtime: MIT License.
 

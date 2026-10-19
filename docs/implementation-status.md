@@ -327,6 +327,10 @@ pwsh scripts/fetch-models.ps1
 - AC-CLI-001/002/003/005/007/008/010（007：退出码 2/4/5/7 已真机实测；6 仅在非 Windows 平台出现）
 - AC-ERR-001/002/004/005/007/009
 - AC-PKG-002/003/007
+- AC-PKG-001/004/006（2026-10-19 便携包重建核对：release 构建 + 模型/运行时 SHA-256 全通过 +
+  13 项必需条目；zip 70 条目（43 契约、5 skills），D3/D4/S1 新工具均在包内，包内 `doctor`
+  `ok=true`、`onnx_runtime.resolved` 指向 `models/onnxruntime.dll`；AC-PKG-004 失败安全实测——
+  下载源不可达时 exit=1，既有模型与 `hashes.json` 哈希不变、无部分文件残留）
 - AC-DOC
 - AC-PERF-001/002/003/004/005/007/008/009（本机 release 实测，见 [performance-baseline.md](performance-baseline.md)）
 - AC-SEC-001/002/003/004/005/006/009/010（安全脚本 12/12：本地监听、token 校验、无审批字段、风险元数据、自定义路径、字库穿越、会话隔离、无脚本执行）
@@ -337,13 +341,17 @@ pwsh scripts/fetch-models.ps1
   契约测试 `script_contract.rs`；L2/L3 引擎未启用）
 - AC-TXN-001..003（D4：检查点保存/四类差异/补偿 dry-run 与 apply；契约测试 `checkpoint_contract.rs`）
 - AC-SEC-013（S1：OCR 输出与 history 错误文本包裹 + 开关；契约测试 `untrusted_wrap.rs`）
+- AC-SEC-007/008（2026-10-19 真机实测：允许根外模板 `C:\Users\Public\*.png` →
+  `policy_denied`（retryable=false）而 `%TEMP%` 内同图正常匹配；`DESKCTL_AUDIT=full` +
+  `DESKCTL_AUDIT_TEXT=digest` 下 `desktop_input` 文本仅落 `text_len`/`text_sha256`，
+  哨兵串不出现在审计/数据目录文件与 `history --json` 中，`full` 对照组仅显式 opt-in 才落明文；
+  详见 [test-plan.md](test-plan.md) §12 实测记录）
 
 未满足或未验证：
 
 - AC-SEM-012（agent_step）
 - AC-PERF-006（已有 warm 基线记录，跨版本回退对比未建立）
-- AC-SEC-007/008（读取限制/日志脱敏未逐条实测）
-- AC-PKG-001/004/005/006
+- AC-PKG-005（卸载保留用户截图目录：需 Inno Setup 安装器与干净机验证，本机无 `iscc.exe`）
 - AC-EXT-*
 - Windows 10 兼容性
 

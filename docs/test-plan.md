@@ -578,6 +578,16 @@ SAP 场景（真实业务值样本）与 `--apply-compensation` 真机回滚仍�
 - 会话隔离和 token 伪造
 - 大 JSON/深嵌套参数不会导致崩溃或长时间占用
 
+> 实测记录（2026-10-19，本机 Windows 11，debug daemon/oneshot）：
+> - 输入图片路径逃逸（AC-SEC-007）：允许根外文件 `C:\Users\Public\deskctl-ac-sec007-<n>.png` 调
+>   `desktop_find_image` → `policy_denied`（`retryable=false`，错误文本含允许根提示）；同一文件复制
+>   到 `%TEMP%`（允许根）后同一调用 `ok=true`，证明策略按路径生效而非一律拒绝；
+> - 日志脱敏（AC-SEC-008）：`DESKCTL_AUDIT=full` + `DESKCTL_AUDIT_TEXT=digest`（默认）下
+>   `desktop_input` 输入哨兵文本 → 审计记录仅含 `text_len`/`text_sha256`（如
+>   `{"text_len":20,"text_sha256":"sha256:4b19d4…"}`），窗口标题未入记录；哨兵串不出现在审计文件、
+>   `%LOCALAPPDATA%\deskctl`/`%APPDATA%\deskctl` 任何文件与 `history --json` 输出中；
+>   对照组 `DESKCTL_AUDIT_TEXT=full`（仅隔离环境显式 opt-in）才落明文，证明检出方法有效。
+
 ## 13. MCP 协议测试
 
 使用独立 mock MCP client 和真实 MCP 客户端各测一遍：
@@ -610,6 +620,18 @@ SAP 场景（真实业务值样本）与 `--apply-compensation` 真机回滚仍�
 - 安装包不包含源码/测试数据
 - 许可证文件存在
 - 用户自定义截图目录不被卸载删除
+
+> 实测记录（2026-10-19，本机 Windows 11）：
+> - 便携包重建（AC-PKG-001/006）：`scripts/build-installer.ps1` → release 构建 + `verify-models.ps1`
+>   哈希全通过 + 13 项必需条目；`dist/deskctl-windows-x64.zip` 共 70 条目（43 契约、5 skills、
+>   exe/ONNX Runtime/OCR+图标模型/许可证文件）；包内 `deskctl doctor` `ok=true`、模型文件齐全、
+>   `onnx_runtime.resolved` 指向包内 `models/onnxruntime.dll`；`--profile full schema --out` 产出
+>   43 个契约文件，`desktop_checkpoint_save` 等新工具均在包内（`invalid_params: requires a daemon session`）。
+> - 失败安全（AC-PKG-004 的“失败不破坏现有安装”）：把下载 URL 指向不可达地址重跑
+>   `scripts/fetch-models.ps1` → exit=1，既有模型与 `hashes.json` 的 SHA-256 全部不变、无部分文件
+>   残留；已存在的文件走 “Keeping existing …” 不重复下载。“从配置源获取新版模型”的端到端升级
+>   演练未做（低优先级）。
+> - 未覆盖：升级安装、卸载行为（AC-PKG-005 需 Inno Setup）、代码签名与干净机安装（发布流水线）。
 
 ## 15. CI 流程
 

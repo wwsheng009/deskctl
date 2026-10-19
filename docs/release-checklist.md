@@ -16,19 +16,18 @@
 | MCP initialize / tools/list / tools/call | 通过 | `crates/deskctl-cli/tests/mcp_smoke.rs`（3 项）；含协议版本校验与 notifications/cancelled |
 | CLI 验收 | 通过 | AC-CLI-001/002/003/005/007/008/010；退出码 2/4/5/7 真机实测 |
 | 错误与重试验收 | 通过 | AC-ERR-001/002/004/005/007/009 |
-| 安全验收 | 通过 | `scripts/security-check.ps1` 12/12：AC-SEC-001/002/003/004/005/006/009/010；AC-SEC-007/008 见第 2 节 |
-| 模型随包与 doctor | 通过 | `scripts/verify-models.ps1` 哈希全通过；`scripts/build-installer.ps1` 校验 13 项包内容与 51 条 zip 条目；解包后 `deskctl doctor` 的 `onnx_runtime.resolved` 指向包内 `models/onnxruntime.dll`，`desktop_perceive` 从包内模型完成 OCR/YOLO 感知 |
+| 安全验收 | 通过 | `scripts/security-check.ps1` 12/12：AC-SEC-001..010；AC-SEC-007/008 于 2026-10-19 真机实测（见 [test-plan.md](test-plan.md) §12） |
+| 模型随包与 doctor | 通过 | `scripts/verify-models.ps1` 哈希全通过；`scripts/build-installer.ps1` 校验 13 项包内容与 70 条 zip 条目（43 契约、5 skills）；解包后 `deskctl doctor` `ok=true` 且 `onnx_runtime.resolved` 指向包内 `models/onnxruntime.dll`，`desktop_perceive` 从包内模型完成 OCR/YOLO 感知 |
 | 性能基线记录 | 通过 | [performance-baseline.md](performance-baseline.md)：AC-PERF-001..005、007、008、009 本机 release 实测 |
 | 文档与 skills | 通过 | AC-DOC；zip 校验 5 个 `skills/*/SKILL.md` 与 `contracts/` |
 | 无 Tauri/LLM/工作流依赖 | 通过 | 同 AC-SCOPE 证据（`Cargo.toml` 与 `Cargo.lock` 均无相关依赖） |
-| 安装包在干净 Windows 机器上通过 | 待流水线 | 本机已产出便携包 `dist/deskctl-windows-x64.zip`（33 MB、51 条目：exe、ONNX Runtime、OCR/YOLO 模型、LICENSE/NOTICE/THIRD_PARTY_NOTICES、skills、contracts），并在解包目录冒烟通过 `doctor`、`desktop_screenshot`、`desktop_perceive`；Inno Setup 模板 `installer/deskctl.iss` 已就绪，干净机安装与代码签名需发布流水线 |
+| 安装包在干净 Windows 机器上通过 | 待流水线 | 本机已产出便携包 `dist/deskctl-windows-x64.zip`（33 MB、70 条目：exe、ONNX Runtime、OCR/图标模型、LICENSE/NOTICE/THIRD_PARTY_NOTICES、skills、contracts×43），并在解包目录冒烟通过 `doctor`、`desktop_screenshot`、`desktop_perceive`；Inno Setup 模板 `installer/deskctl.iss` 已就绪，干净机安装与代码签名需发布流水线 |
 | P0/P1 缺陷清零 | 通过 | P0 named-pipe 并发缺陷已修复并有 8 并发回归；发布审计修复 `doctor` 在便携包布局下误报 ONNX Runtime 缺失（现同时搜索 exe 目录与 `models/`）；其余为已记录的已知限制（[known-limitations.md](known-limitations.md)）与可选功能缺口（AC-SEM-012） |
 
 ## 2. 首期范围外或未验证
 
-- AC-PKG-004 在线模型更新：未实现（低优先级）
+- AC-PKG-004 在线更新：失败安全已实测（不可达源不破坏既有安装）；“从配置源获取新版模型”的端到端升级未演练（低优先级）
 - AC-PKG-005 卸载保留用户截图目录：Inno 模板未含卸载校验
-- AC-SEC-007/008：模板/视觉读取限制与日志脱敏未逐条实测
 - Windows 10 真机回归：未执行（开发机为 Windows 11）
 - AC-EXT-*：以文档与现有扩展点为准，未做端到端新增验证
 
