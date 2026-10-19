@@ -479,6 +479,26 @@ desktop_checkpoint_save {name:"before", targets:[SAP 主窗口], values:[{name:"
 不产生输入派发；`--apply-compensation` 后校验恢复（或如实返回残余差异）；全过程
 `history --run <run_id>` 可复盘补偿步骤（`request_id=<compensation_run_id>:<step>`）。
 
+回归记录（2026-10-19，真机 Windows 11 / daemon 会话）：
+
+```text
+Start-Process cmd.exe（可丢弃窗口，title=deskctl-e2e）
+deskctl call <sess> desktop_checkpoint_save {name:"e2e", targets:[{name:"w", hwnd}]}
+  -> saved=true, targets=1
+deskctl call <sess> desktop_checkpoint_verify {name:"e2e"} -> matched=true, diffs=0
+deskctl tool desktop_window_move {hwnd, x:+120, y:+80}
+deskctl call <sess> desktop_checkpoint_verify {name:"e2e"}
+  -> matched=false, diffs=1:
+     {kind:"rect", expected:{x:27,y:38,width:1752,height:936},
+      actual:{x:147,y:118,width:1752,height:936}, missing:false}
+deskctl tool desktop_window_move {hwnd, 原位} -> verify -> matched=true, diffs=0
+```
+
+结论：`rect` 差异路径真机命中且 expected/actual 与窗口移动量精确一致，还原后回到 matched；
+`value`/`checked`/`exists`/`missing` 四类差异由 `checkpoint.rs` 单测与
+`crates/deskctl-cli/tests/checkpoint_contract.rs` 覆盖；补偿 dry-run/apply 两态由契约测试验证；
+SAP 场景（值类真机样本）与 `--apply-compensation` 真机回滚仍属可选真机项。
+
 ## 9. 并发与压力测试
 
 - 2/4/8 个 session 同时截图
